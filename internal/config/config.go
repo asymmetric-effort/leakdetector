@@ -15,15 +15,24 @@ type Config struct {
 
 // RuleConfig defines a single detection rule in the config file.
 type RuleConfig struct {
-	ID          string   `yaml:"id"`
-	Description string   `yaml:"description"`
-	Regex       string   `yaml:"regex"`
-	SecretGroup int      `yaml:"secret_group"`
-	Entropy     float64  `yaml:"entropy"`
-	Path        string   `yaml:"path"`
-	Keywords    []string `yaml:"keywords"`
-	Tags        []string `yaml:"tags"`
-	Allowlists  []Allowlist `yaml:"allowlists"`
+	ID          string       `yaml:"id"`
+	Description string       `yaml:"description"`
+	Regex       string       `yaml:"regex"`
+	SecretGroup int          `yaml:"secret_group"`
+	Entropy     float64      `yaml:"entropy"`
+	Path        string       `yaml:"path"`
+	Keywords    []string     `yaml:"keywords"`
+	Tags        []string     `yaml:"tags"`
+	Allowlists  []Allowlist  `yaml:"allowlists"`
+	Required    []RequiredRule `yaml:"required"`
+}
+
+// RequiredRule defines an auxiliary pattern for composite/proximity rules.
+type RequiredRule struct {
+	ID            string `yaml:"id"`
+	Regex         string `yaml:"regex"`
+	WithinLines   int    `yaml:"within_lines"`
+	WithinColumns int    `yaml:"within_columns"`
 }
 
 // Allowlist defines criteria for ignoring findings.

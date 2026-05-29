@@ -88,28 +88,28 @@ func sampleFindings() []finding.Finding {
 
 func TestNew(t *testing.T) {
 	tests := []struct {
-		name   string
-		format string
-		redact bool
+		name      string
+		format    string
+		redactPct int
 	}{
-		{"json format no redact", "json", false},
-		{"csv format with redact", "csv", true},
-		{"junit format no redact", "junit", false},
-		{"sarif format with redact", "sarif", true},
-		{"empty format", "", false},
+		{"json format no redact", "json", 0},
+		{"csv format with redact", "csv", 100},
+		{"junit format no redact", "junit", 0},
+		{"sarif format with redact", "sarif", 100},
+		{"empty format", "", 0},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := New(tc.format, tc.redact)
+			w := New(tc.format, tc.redactPct, "")
 			if w == nil {
 				t.Fatal("New() returned nil")
 			}
 			if w.Format != tc.format {
 				t.Errorf("Format = %q, want %q", w.Format, tc.format)
 			}
-			if w.Redact != tc.redact {
-				t.Errorf("Redact = %v, want %v", w.Redact, tc.redact)
+			if w.RedactPercent != tc.redactPct {
+				t.Errorf("RedactPercent = %v, want %v", w.RedactPercent, tc.redactPct)
 			}
 		})
 	}
@@ -117,7 +117,7 @@ func TestNew(t *testing.T) {
 
 func TestWriteJSON(t *testing.T) {
 	var buf bytes.Buffer
-	w := New("json", false)
+	w := New("json", 0, "")
 	findings := []finding.Finding{sampleFinding()}
 
 	if err := w.Write(&buf, findings); err != nil {
@@ -138,7 +138,7 @@ func TestWriteJSON(t *testing.T) {
 
 func TestWriteCSV(t *testing.T) {
 	var buf bytes.Buffer
-	w := New("csv", false)
+	w := New("csv", 0, "")
 	findings := []finding.Finding{sampleFinding()}
 
 	if err := w.Write(&buf, findings); err != nil {
@@ -158,7 +158,7 @@ func TestWriteCSV(t *testing.T) {
 
 func TestWriteJUnit(t *testing.T) {
 	var buf bytes.Buffer
-	w := New("junit", false)
+	w := New("junit", 0, "")
 	findings := []finding.Finding{sampleFinding()}
 
 	if err := w.Write(&buf, findings); err != nil {
@@ -176,7 +176,7 @@ func TestWriteJUnit(t *testing.T) {
 
 func TestWriteSARIF(t *testing.T) {
 	var buf bytes.Buffer
-	w := New("sarif", false)
+	w := New("sarif", 0, "")
 	findings := []finding.Finding{sampleFinding()}
 
 	if err := w.Write(&buf, findings); err != nil {
@@ -194,7 +194,7 @@ func TestWriteSARIF(t *testing.T) {
 
 func TestWriteUnknownFormat(t *testing.T) {
 	var buf bytes.Buffer
-	w := New("unknown", false)
+	w := New("unknown", 0, "")
 	findings := []finding.Finding{sampleFinding()}
 
 	if err := w.Write(&buf, findings); err != nil {
@@ -217,7 +217,7 @@ func TestWriteRedact(t *testing.T) {
 	for _, format := range formats {
 		t.Run(format, func(t *testing.T) {
 			var buf bytes.Buffer
-			w := New(format, true)
+			w := New(format, 100, "")
 			// Use a fresh copy each time since Redact mutates.
 			findings := []finding.Finding{sampleFinding()}
 
@@ -225,12 +225,12 @@ func TestWriteRedact(t *testing.T) {
 				t.Fatalf("Write() error: %v", err)
 			}
 
-			// Verify the finding was redacted (mutated in place).
+			// Verify the finding was fully redacted (RedactPercent 100 = full redaction).
 			if findings[0].Secret == "AKIAIOSFODNN7EXAMPLE" {
 				t.Error("finding secret was not redacted")
 			}
-			if findings[0].Secret != "AK...LE" {
-				t.Errorf("Secret = %q, want %q", findings[0].Secret, "AK...LE")
+			if findings[0].Secret != "REDACTED" {
+				t.Errorf("Secret = %q, want %q", findings[0].Secret, "REDACTED")
 			}
 		})
 	}
@@ -238,7 +238,7 @@ func TestWriteRedact(t *testing.T) {
 
 func TestWriteRedactShortSecret(t *testing.T) {
 	var buf bytes.Buffer
-	w := New("json", true)
+	w := New("json", 100, "")
 	findings := []finding.Finding{
 		{
 			RuleID:      "short",
@@ -268,7 +268,7 @@ func TestWriteEmptyFindings(t *testing.T) {
 	for _, format := range formats {
 		t.Run(format, func(t *testing.T) {
 			var buf bytes.Buffer
-			w := New(format, false)
+			w := New(format, 0, "")
 
 			if err := w.Write(&buf, []finding.Finding{}); err != nil {
 				t.Fatalf("Write() with empty findings error: %v", err)
@@ -287,7 +287,7 @@ func TestWriteNilFindings(t *testing.T) {
 	for _, format := range formats {
 		t.Run(format, func(t *testing.T) {
 			var buf bytes.Buffer
-			w := New(format, false)
+			w := New(format, 0, "")
 
 			if err := w.Write(&buf, nil); err != nil {
 				t.Fatalf("Write() with nil findings error: %v", err)
@@ -303,7 +303,7 @@ func TestWriteMultipleFindings(t *testing.T) {
 	for _, format := range formats {
 		t.Run(format, func(t *testing.T) {
 			var buf bytes.Buffer
-			w := New(format, false)
+			w := New(format, 0, "")
 
 			if err := w.Write(&buf, findings); err != nil {
 				t.Fatalf("Write() error: %v", err)
@@ -322,7 +322,7 @@ func TestWriteMultipleFindings(t *testing.T) {
 
 func TestWriteRedactEmptySecret(t *testing.T) {
 	var buf bytes.Buffer
-	w := New("json", true)
+	w := New("json", 100, "")
 	findings := []finding.Finding{
 		{
 			RuleID:      "empty-secret",
@@ -347,6 +347,35 @@ func TestWriteRedactEmptySecret(t *testing.T) {
 	// Empty secret should remain empty after redact.
 	if parsed[0].Secret != "" {
 		t.Errorf("Secret = %q, want empty string", parsed[0].Secret)
+	}
+}
+
+func TestWritePartialRedact(t *testing.T) {
+	var buf bytes.Buffer
+	// RedactPercent=50 means redact 50%, show 50% -> pct=50 passed to RedactPercent
+	w := New("json", 50, "")
+	findings := []finding.Finding{
+		{
+			RuleID:      "test",
+			Description: "test",
+			StartLine:   1,
+			EndLine:     1,
+			Secret:      "abcdefghij",
+			Match:       "abcdefghij",
+			File:        "f.go",
+			Fingerprint: "fp",
+		},
+	}
+	if err := w.Write(&buf, findings); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+	// RedactPercent=50 -> pct=50 -> show 50% = 5 chars -> "abcde..."
+	var parsed []finding.Finding
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if parsed[0].Secret != "abcde..." {
+		t.Errorf("Secret = %q, want %q", parsed[0].Secret, "abcde...")
 	}
 }
 

@@ -135,9 +135,9 @@ func TestBuiltinRules_SpotChecks(t *testing.T) {
 				t.Fatalf("rule %q not found in builtin rules", tc.ruleID)
 			}
 
-			_, _, matched := rule.Match(tc.line, tc.filePath, "")
-			if matched != tc.wantMatch {
-				t.Errorf("rule %q Match(%q) = %v, want %v", tc.ruleID, tc.line, matched, tc.wantMatch)
+			mr := rule.Match(tc.line, tc.filePath, "")
+			if mr.Found != tc.wantMatch {
+				t.Errorf("rule %q Match(%q) = %v, want %v", tc.ruleID, tc.line, mr.Found, tc.wantMatch)
 			}
 		})
 	}

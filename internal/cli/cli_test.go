@@ -27,8 +27,8 @@ func TestParseDefaults(t *testing.T) {
 	if opts.ReportFormat != "json" {
 		t.Errorf("expected ReportFormat to default to 'json', got %q", opts.ReportFormat)
 	}
-	if opts.Redact {
-		t.Error("expected Redact to default to false")
+	if opts.RedactPercent != 0 {
+		t.Errorf("expected RedactPercent to default to 0, got %d", opts.RedactPercent)
 	}
 	if opts.Verbose {
 		t.Error("expected Verbose to default to false")
@@ -64,7 +64,7 @@ func TestParseBoolFlags(t *testing.T) {
 	}{
 		{"version", "--version", func(o Options) bool { return o.ShowVersion }},
 		{"skip-history", "--skip-history", func(o Options) bool { return o.SkipHistory }},
-		{"redact", "--redact", func(o Options) bool { return o.Redact }},
+		{"redact", "--redact=100", func(o Options) bool { return o.RedactPercent == 100 }},
 		{"verbose", "--verbose", func(o Options) bool { return o.Verbose }},
 		{"no-color", "--no-color", func(o Options) bool { return o.NoColor }},
 		{"stdin", "--stdin", func(o Options) bool { return o.Stdin }},
@@ -191,5 +191,199 @@ func TestRunInvalidFlag(t *testing.T) {
 	errOut := stderr.String()
 	if !strings.Contains(errOut, "error") {
 		t.Errorf("expected stderr to contain 'error', got %q", errOut)
+	}
+}
+
+func TestStringSliceFlagString(t *testing.T) {
+	// Test with nil values pointer.
+	s := &stringSliceFlag{values: nil}
+	if got := s.String(); got != "" {
+		t.Errorf("expected empty string for nil values, got %q", got)
+	}
+
+	// Test with populated values.
+	vals := []string{"rule1", "rule2", "rule3"}
+	s = &stringSliceFlag{values: &vals}
+	if got := s.String(); got != "rule1,rule2,rule3" {
+		t.Errorf("expected 'rule1,rule2,rule3', got %q", got)
+	}
+
+	// Test with empty slice.
+	empty := []string{}
+	s = &stringSliceFlag{values: &empty}
+	if got := s.String(); got != "" {
+		t.Errorf("expected empty string for empty slice, got %q", got)
+	}
+}
+
+func TestStringSliceFlagSet(t *testing.T) {
+	var vals []string
+	s := &stringSliceFlag{values: &vals}
+
+	if err := s.Set("rule1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := s.Set("rule2"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vals) != 2 || vals[0] != "rule1" || vals[1] != "rule2" {
+		t.Errorf("expected [rule1, rule2], got %v", vals)
+	}
+}
+
+func TestParseNewFlags(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Test --staged
+	opts, err := Parse([]string{"--staged"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !opts.Staged {
+		t.Error("expected Staged to be true")
+	}
+
+	// Test --max-decode-depth
+	opts, err = Parse([]string{"--max-decode-depth", "5"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.MaxDecodeDepth != 5 {
+		t.Errorf("expected MaxDecodeDepth 5, got %d", opts.MaxDecodeDepth)
+	}
+
+	// Test --follow-symlinks
+	opts, err = Parse([]string{"--follow-symlinks"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !opts.FollowSymlinks {
+		t.Error("expected FollowSymlinks to be true")
+	}
+
+	// Test --timeout
+	opts, err = Parse([]string{"--timeout", "30"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Timeout != 30 {
+		t.Errorf("expected Timeout 30, got %d", opts.Timeout)
+	}
+
+	// Test --platform
+	opts, err = Parse([]string{"--platform", "github"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Platform != "github" {
+		t.Errorf("expected Platform 'github', got %q", opts.Platform)
+	}
+
+	// Test --report-template
+	opts, err = Parse([]string{"--report-template", "/tmp/tmpl.txt"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.TemplatePath != "/tmp/tmpl.txt" {
+		t.Errorf("expected TemplatePath '/tmp/tmpl.txt', got %q", opts.TemplatePath)
+	}
+}
+
+func TestParseEnableRuleRepeated(t *testing.T) {
+	var buf bytes.Buffer
+	opts, err := Parse([]string{"--enable-rule", "rule1", "--enable-rule", "rule2"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(opts.EnableRules) != 2 {
+		t.Fatalf("expected 2 enable rules, got %d", len(opts.EnableRules))
+	}
+	if opts.EnableRules[0] != "rule1" || opts.EnableRules[1] != "rule2" {
+		t.Errorf("expected [rule1, rule2], got %v", opts.EnableRules)
+	}
+}
+
+func TestParseRedactIntValue(t *testing.T) {
+	var buf bytes.Buffer
+	opts, err := Parse([]string{"--redact", "50"}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.RedactPercent != 50 {
+		t.Errorf("expected RedactPercent 50, got %d", opts.RedactPercent)
+	}
+}
+
+func TestParseDefaultsNewFields(t *testing.T) {
+	var buf bytes.Buffer
+	opts, err := Parse([]string{}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Staged {
+		t.Error("expected Staged to default to false")
+	}
+	if opts.MaxDecodeDepth != 0 {
+		t.Errorf("expected MaxDecodeDepth to default to 0, got %d", opts.MaxDecodeDepth)
+	}
+	if opts.FollowSymlinks {
+		t.Error("expected FollowSymlinks to default to false")
+	}
+	if opts.Timeout != 0 {
+		t.Errorf("expected Timeout to default to 0, got %d", opts.Timeout)
+	}
+	if opts.Platform != "" {
+		t.Errorf("expected Platform to default to empty, got %q", opts.Platform)
+	}
+	if opts.TemplatePath != "" {
+		t.Errorf("expected TemplatePath to default to empty, got %q", opts.TemplatePath)
+	}
+	if len(opts.EnableRules) != 0 {
+		t.Errorf("expected EnableRules to default to empty, got %v", opts.EnableRules)
+	}
+}
+
+func TestParseCombinedFlags(t *testing.T) {
+	var buf bytes.Buffer
+	opts, err := Parse([]string{
+		"--staged",
+		"--max-decode-depth", "3",
+		"--follow-symlinks",
+		"--timeout", "60",
+		"--platform", "gitlab",
+		"--report-template", "/tmp/t.tmpl",
+		"--enable-rule", "aws-access-key-id",
+		"--redact", "25",
+		"--verbose",
+	}, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !opts.Staged {
+		t.Error("expected Staged true")
+	}
+	if opts.MaxDecodeDepth != 3 {
+		t.Errorf("expected MaxDecodeDepth 3, got %d", opts.MaxDecodeDepth)
+	}
+	if !opts.FollowSymlinks {
+		t.Error("expected FollowSymlinks true")
+	}
+	if opts.Timeout != 60 {
+		t.Errorf("expected Timeout 60, got %d", opts.Timeout)
+	}
+	if opts.Platform != "gitlab" {
+		t.Errorf("expected Platform 'gitlab', got %q", opts.Platform)
+	}
+	if opts.TemplatePath != "/tmp/t.tmpl" {
+		t.Errorf("expected TemplatePath '/tmp/t.tmpl', got %q", opts.TemplatePath)
+	}
+	if len(opts.EnableRules) != 1 || opts.EnableRules[0] != "aws-access-key-id" {
+		t.Errorf("expected [aws-access-key-id], got %v", opts.EnableRules)
+	}
+	if opts.RedactPercent != 25 {
+		t.Errorf("expected RedactPercent 25, got %d", opts.RedactPercent)
+	}
+	if !opts.Verbose {
+		t.Error("expected Verbose true")
 	}
 }

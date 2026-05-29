@@ -1,9 +1,11 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/asymmetric-effort/leakdetector/internal/finding"
 	"github.com/asymmetric-effort/leakdetector/internal/rules"
@@ -31,21 +33,36 @@ func Scan(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 	}
 	opts.Dir = dir
 
+	// Create context with optional timeout.
+	ctx := context.Background()
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(opts.Timeout)*time.Second)
+		defer cancel()
+	}
+
 	var findings []finding.Finding
 
 	// Scan files on disk.
-	fileFindings, err := scanFiles(opts, rs)
+	fileFindings, err := scanFiles(ctx, opts, rs)
 	if err != nil {
 		return nil, fmt.Errorf("file scan: %w", err)
 	}
 	findings = append(findings, fileFindings...)
 
-	// Scan git history if .git directory exists and history is not skipped.
-	if !opts.SkipHistory {
+	// Scan staged changes if requested.
+	if opts.Staged {
+		stagedFindings, stagedErr := scanStaged(opts, rs)
+		if stagedErr != nil {
+			return findings, fmt.Errorf("staged scan: %w", stagedErr)
+		}
+		findings = append(findings, stagedFindings...)
+	} else if !opts.SkipHistory {
+		// Scan git history if .git directory exists and history is not skipped.
 		gitDir := filepath.Join(dir, ".git")
 		info, statErr := os.Stat(gitDir)
 		if statErr == nil && info.IsDir() {
-			gitFindings, gitErr := scanGit(opts, rs)
+			gitFindings, gitErr := scanGit(ctx, opts, rs)
 			if gitErr != nil {
 				return findings, fmt.Errorf("git scan: %w", gitErr)
 			}

@@ -219,7 +219,7 @@ func TestRedaction(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "secret.txt"),
 		[]byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
 
-	stdout, _, code := run(t, dir, "", "--skip-history", "--redact")
+	stdout, _, code := run(t, dir, "", "--skip-history", "--redact", "100")
 	if code != 1 {
 		t.Errorf("expected exit code 1, got %d", code)
 	}

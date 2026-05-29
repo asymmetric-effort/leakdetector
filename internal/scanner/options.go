@@ -13,4 +13,9 @@ type Options struct {
 	MaxFileSizeMB  int
 	Verbose        bool
 	Stderr         io.Writer
+	Staged         bool
+	MaxDecodeDepth int
+	FollowSymlinks bool
+	Timeout        int    // seconds, 0=no timeout
+	Platform       string // github, gitlab
 }

@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -161,7 +162,7 @@ func TestScanGit_WithTempRepo(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -244,7 +245,7 @@ func TestScanGit_ExcludeCommit(t *testing.T) {
 		Stderr:         &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -299,7 +300,7 @@ func TestScanGit_ExcludePath(t *testing.T) {
 		Stderr:       &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -363,7 +364,7 @@ func TestScanGit_WithBranch(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -422,7 +423,7 @@ func TestScanGit_ContextLinesAndMultipleHunks(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -481,7 +482,7 @@ func TestScanGit_DecoratedCommitLine(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -561,7 +562,7 @@ func TestScanGit_MergeCommit(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -619,7 +620,7 @@ func TestScanGit_MultiLineCommitMessage(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanGit(opts, rs)
+	findings, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -662,7 +663,7 @@ func TestScanGit_VerboseErrors(t *testing.T) {
 
 	// scanGit will run git log which will fail in a broken repo.
 	// It should not return an error (it handles errors gracefully).
-	_, _ = scanGit(opts, rs)
+	_, _ = scanGit(context.Background(), opts, rs)
 
 	// Verbose output should contain warnings about git errors.
 	if stderr.Len() > 0 {
@@ -716,7 +717,7 @@ func TestScanGit_LongLineTriggersVerboseScannerError(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	_, err := scanGit(opts, rs)
+	_, err := scanGit(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanGit returned error: %v", err)
 	}
@@ -725,4 +726,272 @@ func TestScanGit_LongLineTriggersVerboseScannerError(t *testing.T) {
 	if stderr.Len() > 0 {
 		t.Logf("verbose stderr: %s", stderr.String())
 	}
+}
+
+func TestParseRemoteURL_SSH(t *testing.T) {
+	tests := []struct {
+		name      string
+		url       string
+		wantOwner string
+		wantRepo  string
+	}{
+		{
+			name:      "standard ssh",
+			url:       "git@github.com:owner/repo.git",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "ssh without .git suffix",
+			url:       "git@github.com:owner/repo",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "ssh gitlab",
+			url:       "git@gitlab.com:myorg/myproject.git",
+			wantOwner: "myorg",
+			wantRepo:  "myproject",
+		},
+		{
+			name:      "ssh no colon",
+			url:       "git@github.com",
+			wantOwner: "",
+			wantRepo:  "",
+		},
+		{
+			name:      "ssh no slash in path",
+			url:       "git@github.com:onlyrepo",
+			wantOwner: "",
+			wantRepo:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner, repo := parseRemoteURL(tt.url)
+			if owner != tt.wantOwner {
+				t.Errorf("parseRemoteURL(%q) owner = %q, want %q", tt.url, owner, tt.wantOwner)
+			}
+			if repo != tt.wantRepo {
+				t.Errorf("parseRemoteURL(%q) repo = %q, want %q", tt.url, repo, tt.wantRepo)
+			}
+		})
+	}
+}
+
+func TestParseRemoteURL_HTTPS(t *testing.T) {
+	tests := []struct {
+		name      string
+		url       string
+		wantOwner string
+		wantRepo  string
+	}{
+		{
+			name:      "standard https",
+			url:       "https://github.com/owner/repo.git",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "https without .git",
+			url:       "https://github.com/owner/repo",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "http scheme",
+			url:       "http://github.com/owner/repo.git",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "gitlab https",
+			url:       "https://gitlab.com/myorg/myproject.git",
+			wantOwner: "myorg",
+			wantRepo:  "myproject",
+		},
+		{
+			name:      "https no path",
+			url:       "https://github.com/",
+			wantOwner: "",
+			wantRepo:  "",
+		},
+		{
+			name:      "https only host",
+			url:       "https://github.com",
+			wantOwner: "",
+			wantRepo:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner, repo := parseRemoteURL(tt.url)
+			if owner != tt.wantOwner {
+				t.Errorf("parseRemoteURL(%q) owner = %q, want %q", tt.url, owner, tt.wantOwner)
+			}
+			if repo != tt.wantRepo {
+				t.Errorf("parseRemoteURL(%q) repo = %q, want %q", tt.url, repo, tt.wantRepo)
+			}
+		})
+	}
+}
+
+func TestParseRemoteURL_Invalid(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"empty", ""},
+		{"ftp scheme", "ftp://github.com/owner/repo"},
+		{"random string", "not-a-url"},
+		{"file path", "/path/to/repo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner, repo := parseRemoteURL(tt.url)
+			if owner != "" || repo != "" {
+				t.Errorf("parseRemoteURL(%q) = (%q, %q), want empty", tt.url, owner, repo)
+			}
+		})
+	}
+}
+
+func TestGenerateGitLink_GitHub(t *testing.T) {
+	link := generateGitLink("github", "owner", "repo", "abc123", "src/main.go", 42)
+	expected := "https://github.com/owner/repo/blob/abc123/src/main.go#L42"
+	if link != expected {
+		t.Errorf("generateGitLink github = %q, want %q", link, expected)
+	}
+}
+
+func TestGenerateGitLink_GitLab(t *testing.T) {
+	link := generateGitLink("gitlab", "owner", "repo", "abc123", "src/main.go", 42)
+	expected := "https://gitlab.com/owner/repo/-/blob/abc123/src/main.go#L42"
+	if link != expected {
+		t.Errorf("generateGitLink gitlab = %q, want %q", link, expected)
+	}
+}
+
+func TestGenerateGitLink_UnknownPlatform(t *testing.T) {
+	link := generateGitLink("bitbucket", "owner", "repo", "abc123", "src/main.go", 42)
+	if link != "" {
+		t.Errorf("generateGitLink unknown platform = %q, want empty", link)
+	}
+}
+
+func TestGenerateGitLink_CaseInsensitive(t *testing.T) {
+	link := generateGitLink("GitHub", "owner", "repo", "abc123", "file.go", 1)
+	if link == "" {
+		t.Error("expected non-empty link for mixed-case GitHub")
+	}
+
+	link = generateGitLink("GitLab", "owner", "repo", "abc123", "file.go", 1)
+	if link == "" {
+		t.Error("expected non-empty link for mixed-case GitLab")
+	}
+}
+
+func TestGetRemoteURL_WithOrigin(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/testowner/testrepo.git")
+	cmd.Dir = dir
+	cmd.Run()
+
+	got := getRemoteURL(dir)
+	expected := "https://github.com/testowner/testrepo.git"
+	if got != expected {
+		t.Errorf("getRemoteURL = %q, want %q", got, expected)
+	}
+}
+
+func TestGetRemoteURL_NoOrigin(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	got := getRemoteURL(dir)
+	if got != "" {
+		t.Errorf("getRemoteURL with no origin = %q, want empty", got)
+	}
+}
+
+func TestGetRemoteURL_NotAGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	got := getRemoteURL(dir)
+	if got != "" {
+		t.Errorf("getRemoteURL for non-git dir = %q, want empty", got)
+	}
+}
+
+func TestScanGit_WithPlatformLink(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+	runGit("remote", "add", "origin", "https://github.com/myorg/myrepo.git")
+
+	os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+	runGit("add", "secret.txt")
+	runGit("commit", "-m", "add secret")
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:      dir,
+		Platform: "github",
+		Stderr:   &stderr,
+	}
+
+	findings, err := scanGit(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanGit returned error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding")
+	}
+
+	for _, f := range findings {
+		if f.File == "secret.txt" && f.Link != "" {
+			return // success - link was generated
+		}
+	}
+	t.Error("expected finding with non-empty Link when Platform is set")
 }

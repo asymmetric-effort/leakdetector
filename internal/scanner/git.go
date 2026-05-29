@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -12,15 +13,15 @@ import (
 
 // scanGit runs git log -p and parses the unified diff output to scan
 // added lines against all rules.
-func scanGit(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
-	args := []string{"log", "-p", "--full-history", "--diff-filter=A"}
+func scanGit(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
+	args := []string{"log", "-p", "--full-history"}
 	if opts.Branch != "" {
 		args = append(args, opts.Branch)
 	} else {
 		args = append(args, "--all")
 	}
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = opts.Dir
 
 	stdout, err := cmd.StdoutPipe()
@@ -30,6 +31,15 @@ func scanGit(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("git start: %w", err)
+	}
+
+	// Resolve remote URL and owner/repo for platform link generation.
+	var linkOwner, linkRepo string
+	if opts.Platform != "" {
+		remoteURL := getRemoteURL(opts.Dir)
+		if remoteURL != "" {
+			linkOwner, linkRepo = parseRemoteURL(remoteURL)
+		}
 	}
 
 	var findings []finding.Finding
@@ -144,6 +154,11 @@ func scanGit(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 				lineFindings[i].Email = email
 				lineFindings[i].Date = date
 				lineFindings[i].Message = message.String()
+
+				// Generate platform link if configured.
+				if linkOwner != "" && linkRepo != "" {
+					lineFindings[i].Link = generateGitLink(opts.Platform, linkOwner, linkRepo, commitSHA, filePath, lineFindings[i].StartLine)
+				}
 			}
 			findings = append(findings, lineFindings...)
 			lineNum++
@@ -210,4 +225,66 @@ func parseHunkLineNumber(hunk string) int {
 		num = num*10 + int(c-'0')
 	}
 	return num
+}
+
+// getRemoteURL runs git remote get-url origin and returns the result.
+func getRemoteURL(dir string) string {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// parseRemoteURL extracts owner and repo from a git remote URL.
+// Supports SSH (git@host:owner/repo.git) and HTTPS (https://host/owner/repo.git).
+func parseRemoteURL(rawURL string) (string, string) {
+	// SSH format: git@github.com:owner/repo.git
+	if strings.HasPrefix(rawURL, "git@") {
+		colonIdx := strings.Index(rawURL, ":")
+		if colonIdx < 0 {
+			return "", ""
+		}
+		path := rawURL[colonIdx+1:]
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) != 2 {
+			return "", ""
+		}
+		return parts[0], parts[1]
+	}
+
+	// HTTPS format: https://github.com/owner/repo.git
+	if strings.HasPrefix(rawURL, "https://") || strings.HasPrefix(rawURL, "http://") {
+		// Remove scheme and host.
+		idx := strings.Index(rawURL, "://")
+		path := rawURL[idx+3:]
+		// Remove host.
+		slashIdx := strings.Index(path, "/")
+		if slashIdx < 0 {
+			return "", ""
+		}
+		path = path[slashIdx+1:]
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) != 2 {
+			return "", ""
+		}
+		return parts[0], parts[1]
+	}
+
+	return "", ""
+}
+
+// generateGitLink creates a platform-specific link for a finding in git history.
+func generateGitLink(platform, owner, repo, commit, filePath string, lineNum int) string {
+	switch strings.ToLower(platform) {
+	case "github":
+		return fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d", owner, repo, commit, filePath, lineNum)
+	case "gitlab":
+		return fmt.Sprintf("https://gitlab.com/%s/%s/-/blob/%s/%s#L%d", owner, repo, commit, filePath, lineNum)
+	}
+	return ""
 }

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -265,7 +267,7 @@ func TestExecuteRedact(t *testing.T) {
 	opts := Options{
 		SkipHistory:  true,
 		ReportFormat: "json",
-		Redact:       true,
+		RedactPercent: 100,
 		ExitCode:     1,
 	}
 	code := execute(opts, dir, &stdout, &stderr)
@@ -372,5 +374,461 @@ func TestExecuteStdinMode(t *testing.T) {
 	code := execute(opts, dir, &stdout, &stderr)
 	if code != 0 {
 		t.Errorf("expected exit code 0, got %d; stderr: %s", code, stderr.String())
+	}
+}
+
+func TestExecuteExtendPathValid(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create an extended config file with a custom rule.
+	extConfig := `rules:
+  - id: custom-ext-rule
+    description: "custom extended rule"
+    regex: "CUSTOMSECRET[0-9]+"
+`
+	extPath := filepath.Join(dir, "ext-config.yml")
+	if err := os.WriteFile(extPath, []byte(extConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create main config that extends the external one.
+	mainConfig := `extend:
+  use_default: true
+  path: ` + extPath + `
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a file that triggers the custom rule.
+	if err := os.WriteFile(filepath.Join(dir, "app.go"), []byte(`const s = "CUSTOMSECRET12345"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("expected exit code 1 (custom rule from extend), got %d; stderr: %s", code, stderr.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("custom-ext-rule")) {
+		t.Errorf("expected custom-ext-rule in output, got: %s", stdout.String())
+	}
+}
+
+func TestExecuteExtendPathInvalid(t *testing.T) {
+	dir := t.TempDir()
+
+	// Point extend.path to a directory (which causes a read error, not IsNotExist).
+	extDir := filepath.Join(dir, "ext-dir")
+	if err := os.Mkdir(extDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mainConfig := `extend:
+  use_default: true
+  path: ` + extDir + `
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (extend config error), got %d; stderr: %s", code, stderr.String())
+	}
+}
+
+func TestExecuteExtendUseDefaultFalse(t *testing.T) {
+	dir := t.TempDir()
+
+	// Config with use_default: false means no built-in rules.
+	mainConfig := `extend:
+  use_default: false
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a file that would normally trigger a built-in rule.
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 0 {
+		t.Errorf("expected exit code 0 (no rules when use_default=false), got %d; stderr: %s", code, stderr.String())
+	}
+}
+
+func TestExecuteExtendDisabledRules(t *testing.T) {
+	dir := t.TempDir()
+
+	// Disable the aws-access-key-id rule.
+	mainConfig := `extend:
+  use_default: true
+  disabled_rules:
+    - "aws-access-key-id"
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a file that would trigger aws-access-key-id.
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 0 {
+		t.Errorf("expected exit code 0 (rule disabled), got %d; stderr: %s; stdout: %s", code, stderr.String(), stdout.String())
+	}
+}
+
+func TestExecuteEnableRuleFiltering(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a file that triggers aws-access-key-id.
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only enable a rule that does not match this file.
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+		EnableRules:  []string{"generic-api-key"},
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 0 {
+		t.Errorf("expected exit code 0 (only non-matching rule enabled), got %d; stderr: %s", code, stderr.String())
+	}
+
+	// Now enable the matching rule.
+	stdout.Reset()
+	stderr.Reset()
+	opts.EnableRules = []string{"aws-access-key-id"}
+	code = execute(opts, dir, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("expected exit code 1 (matching rule enabled), got %d; stderr: %s", code, stderr.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("aws-access-key-id")) {
+		t.Errorf("expected aws-access-key-id in output, got: %s", stdout.String())
+	}
+}
+
+func TestExecuteStagedMode(t *testing.T) {
+	dir := t.TempDir()
+
+	// Initialize a git repo.
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("failed to run %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Create initial commit.
+	cleanFile := filepath.Join(dir, "clean.go")
+	if err := os.WriteFile(cleanFile, []byte("package main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "add", "clean.go")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "commit", "-m", "initial")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	// Stage a file with a secret.
+	secretFile := filepath.Join(dir, "secret.go")
+	if err := os.WriteFile(secretFile, []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd = exec.Command("git", "add", "secret.go")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add secret: %v\n%s", err, out)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		Staged:       true,
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("expected exit code 1 (staged secret found), got %d; stderr: %s", code, stderr.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("aws-access-key-id")) {
+		t.Errorf("expected finding in staged scan, got: %s", stdout.String())
+	}
+}
+
+func TestExecuteLeakdetectorignore(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a file with a secret.
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// First, scan without ignore to get the fingerprint.
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+
+	// Extract fingerprint from output (may be pretty-printed).
+	output := stdout.String()
+	marker := `"fingerprint": "`
+	fpIdx := strings.Index(output, marker)
+	if fpIdx < 0 {
+		marker = `"fingerprint":"`
+		fpIdx = strings.Index(output, marker)
+	}
+	if fpIdx < 0 {
+		t.Fatalf("no fingerprint in output: %s", output)
+	}
+	fpStart := fpIdx + len(marker)
+	fpEnd := strings.Index(output[fpStart:], `"`)
+	fingerprint := output[fpStart : fpStart+fpEnd]
+
+	// Write .leakdetectorignore with that fingerprint.
+	ignoreContent := "# Ignore known finding\n" + fingerprint + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetectorignore"), []byte(ignoreContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-scan: finding should be filtered out.
+	stdout.Reset()
+	stderr.Reset()
+	code = execute(opts, dir, &stdout, &stderr)
+	if code != 0 {
+		t.Errorf("expected exit code 0 (ignored by .leakdetectorignore), got %d; stdout: %s", code, stdout.String())
+	}
+}
+
+func TestExecuteTemplateFormat(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a file with a secret.
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a template file.
+	tmplContent := `Found {{len .}} issues.{{range .}}
+- {{.RuleID}}: {{.File}}{{end}}
+`
+	tmplPath := filepath.Join(dir, "report.tmpl")
+	if err := os.WriteFile(tmplPath, []byte(tmplContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "template",
+		TemplatePath: tmplPath,
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("expected exit code 1, got %d; stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Found") {
+		t.Errorf("expected template output with 'Found', got: %s", out)
+	}
+	if !strings.Contains(out, "aws-access-key-id") {
+		t.Errorf("expected rule ID in template output, got: %s", out)
+	}
+}
+
+func TestExecuteTemplateFormatNoPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a file with a secret so template write is attempted.
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "template",
+		TemplatePath: "", // No template path.
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (template path missing), got %d; stderr: %s", code, stderr.String())
+	}
+}
+
+func TestExecuteVerboseWithFindings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`const key = "AKIAIOSFODNN7EXAMPLE"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		Verbose:      true,
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("expected exit code 1, got %d", code)
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "scan complete") {
+		t.Error("expected verbose output in stderr")
+	}
+	if !strings.Contains(errOut, "finding") {
+		t.Errorf("expected findings count in verbose output, got: %s", errOut)
+	}
+}
+
+func TestExecuteInvalidRuleRegex(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a config with an invalid regex to trigger a compile error.
+	configContent := `rules:
+  - id: bad-rule
+    description: "rule with bad regex"
+    regex: "[invalid(regex"
+`
+	configPath := filepath.Join(dir, "bad-rules.yml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ConfigPath:   configPath,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (compile error), got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "failed to compile rules") {
+		t.Errorf("expected compile rules error in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestExecuteScanError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Trigger a scan error by using stdin mode with a broken stdin.
+	// Replace os.Stdin with a pipe that returns an error.
+	origStdin := os.Stdin
+
+	// Create a pipe and close the write end immediately, then make the read
+	// end return an error by using a file that's already closed.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write a very long line that exceeds the scanner buffer to trigger a scan error.
+	// The scanner has a max buffer size; exceeding it causes bufio.Scanner.Err() to
+	// return bufio.ErrTooLong. Default maxLineSize in the scanner package is
+	// typically 1MB; we write 2MB without a newline.
+	bigLine := strings.Repeat("A", 2*1024*1024)
+	go func() {
+		w.WriteString(bigLine)
+		w.Close()
+	}()
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		Stdin:        true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	r.Close()
+	// The scanner should report an error for the too-long line.
+	if code != 2 {
+		t.Errorf("expected exit code 2 (scan error), got %d; stderr: %s", code, stderr.String())
+	}
+}
+
+func TestExecuteExtendPathNonExistent(t *testing.T) {
+	dir := t.TempDir()
+
+	// Point extend.path to a non-existent file (IsNotExist - should be tolerated).
+	mainConfig := `extend:
+  use_default: true
+  path: /nonexistent/path/to/config.yml
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	// Non-existent extend path is tolerated (os.IsNotExist).
+	if code != 0 {
+		t.Errorf("expected exit code 0 (non-existent extend tolerated), got %d; stderr: %s", code, stderr.String())
 	}
 }

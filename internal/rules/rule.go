@@ -19,6 +19,15 @@ type CompiledRule struct {
 	Keywords    []string
 	Tags        []string
 	Allowlists  []CompiledAllowlist
+	Required    []CompiledRequired
+}
+
+// CompiledRequired is a compiled auxiliary pattern for composite rules.
+type CompiledRequired struct {
+	ID            string
+	Regex         *regexp.Regexp
+	WithinLines   int
+	WithinColumns int
 }
 
 // CompiledAllowlist is an allowlist with pre-compiled regex patterns.
@@ -40,23 +49,59 @@ type RuleSet struct {
 
 // Compile compiles user-provided rule configs merged with built-in defaults
 // and returns a RuleSet ready for scanning.
+// CompileOptions controls rule compilation behavior.
+type CompileOptions struct {
+	UseDefault    bool
+	DisabledRules []string
+	EnabledRules  []string
+}
+
+// Compile compiles user-provided rule configs merged with built-in defaults
+// and returns a RuleSet ready for scanning.
 func Compile(userRules []config.RuleConfig, globalAllowlists []config.Allowlist) (*RuleSet, error) {
+	return CompileWithOptions(userRules, globalAllowlists, CompileOptions{UseDefault: true})
+}
+
+// CompileWithOptions compiles rules with extended options for controlling
+// which built-in rules are included.
+func CompileWithOptions(userRules []config.RuleConfig, globalAllowlists []config.Allowlist, opts CompileOptions) (*RuleSet, error) {
 	rs := &RuleSet{}
 
-	// Start with built-in rules
-	builtinRules := BuiltinRules()
+	// Build disabled rules set for fast lookup.
+	disabled := make(map[string]struct{}, len(opts.DisabledRules))
+	for _, id := range opts.DisabledRules {
+		disabled[id] = struct{}{}
+	}
 
-	// Compile built-in rules
-	for i := range builtinRules {
-		compiled, err := compileRule(&builtinRules[i])
-		if err != nil {
-			return nil, err
+	// Build enabled rules set for fast lookup.
+	var enabled map[string]struct{}
+	if len(opts.EnabledRules) > 0 {
+		enabled = make(map[string]struct{}, len(opts.EnabledRules))
+		for _, id := range opts.EnabledRules {
+			enabled[id] = struct{}{}
 		}
-		rs.Rules = append(rs.Rules, compiled)
+	}
+
+	// Start with built-in rules if use_default is true.
+	if opts.UseDefault {
+		builtinRules := BuiltinRules()
+		for i := range builtinRules {
+			if _, ok := disabled[builtinRules[i].ID]; ok {
+				continue
+			}
+			compiled, err := compileRule(&builtinRules[i])
+			if err != nil {
+				return nil, err
+			}
+			rs.Rules = append(rs.Rules, compiled)
+		}
 	}
 
 	// Compile user rules (override built-in if same ID)
 	for i := range userRules {
+		if _, ok := disabled[userRules[i].ID]; ok {
+			continue
+		}
 		compiled, err := compileRule(&userRules[i])
 		if err != nil {
 			return nil, err
@@ -74,6 +119,17 @@ func Compile(userRules []config.RuleConfig, globalAllowlists []config.Allowlist)
 		if !found {
 			rs.Rules = append(rs.Rules, compiled)
 		}
+	}
+
+	// Filter to only enabled rules if specified.
+	if enabled != nil {
+		var filtered []CompiledRule
+		for i := range rs.Rules {
+			if _, ok := enabled[rs.Rules[i].ID]; ok {
+				filtered = append(filtered, rs.Rules[i])
+			}
+		}
+		rs.Rules = filtered
 	}
 
 	// Compile global allowlists
@@ -122,6 +178,21 @@ func compileRule(rc *config.RuleConfig) (CompiledRule, error) {
 		cr.Allowlists = append(cr.Allowlists, compiled)
 	}
 
+	// Compile required/proximity rules.
+	for i := range rc.Required {
+		req := rc.Required[i]
+		re, err := regexp.Compile(req.Regex)
+		if err != nil {
+			return cr, &RuleCompileError{RuleID: rc.ID, Field: "required.regex", Err: err}
+		}
+		cr.Required = append(cr.Required, CompiledRequired{
+			ID:            req.ID,
+			Regex:         re,
+			WithinLines:   req.WithinLines,
+			WithinColumns: req.WithinColumns,
+		})
+	}
+
 	return cr, nil
 }
 
@@ -159,12 +230,19 @@ func compileAllowlist(al *config.Allowlist) (CompiledAllowlist, error) {
 	return cal, nil
 }
 
+// MatchResult holds the result of a rule match.
+type MatchResult struct {
+	FullMatch string
+	Secret    string
+	Entropy   float64
+	Found     bool
+}
+
 // Match checks a line of content against a compiled rule.
-// Returns the matched secret string and whether a match was found.
-func (r *CompiledRule) Match(line, filePath, commit string) (string, string, bool) {
+func (r *CompiledRule) Match(line, filePath, commit string) MatchResult {
 	// Path filter
 	if r.Path != nil && !r.Path.MatchString(filePath) {
-		return "", "", false
+		return MatchResult{}
 	}
 
 	// Keyword pre-filter
@@ -178,18 +256,18 @@ func (r *CompiledRule) Match(line, filePath, commit string) (string, string, boo
 			}
 		}
 		if !found {
-			return "", "", false
+			return MatchResult{}
 		}
 	}
 
 	// Regex match
 	if r.Regex == nil {
-		return "", "", false
+		return MatchResult{}
 	}
 
 	matches := r.Regex.FindStringSubmatch(line)
 	if matches == nil {
-		return "", "", false
+		return MatchResult{}
 	}
 
 	fullMatch := matches[0]
@@ -198,22 +276,27 @@ func (r *CompiledRule) Match(line, filePath, commit string) (string, string, boo
 		secret = matches[r.SecretGroup]
 	}
 
+	// Compute entropy
+	e := entropy.Shannon(secret)
+
 	// Entropy filter
-	if r.Entropy > 0 {
-		e := entropy.Shannon(secret)
-		if e < r.Entropy {
-			return "", "", false
-		}
+	if r.Entropy > 0 && e < r.Entropy {
+		return MatchResult{}
 	}
 
 	// Check rule-level allowlists
 	for i := range r.Allowlists {
 		if r.Allowlists[i].IsAllowed(secret, fullMatch, line, filePath, commit) {
-			return "", "", false
+			return MatchResult{}
 		}
 	}
 
-	return fullMatch, secret, true
+	return MatchResult{
+		FullMatch: fullMatch,
+		Secret:    secret,
+		Entropy:   e,
+		Found:     true,
+	}
 }
 
 // IsAllowed returns true if a finding should be ignored based on this allowlist.

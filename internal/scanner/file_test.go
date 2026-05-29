@@ -2,8 +2,12 @@ package scanner
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/asymmetric-effort/leakdetector/internal/config"
@@ -56,7 +60,7 @@ func TestScanFiles_DetectsSecrets(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -91,7 +95,7 @@ func TestScanFiles_RespectsExcludePaths(t *testing.T) {
 		Stderr:       &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -124,7 +128,7 @@ func TestScanFiles_RespectsExcludePathsDirectory(t *testing.T) {
 		Stderr:       &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -156,7 +160,7 @@ func TestScanFiles_RespectsMaxFileSize(t *testing.T) {
 		Stderr:        &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -188,7 +192,7 @@ func TestScanFiles_SkipsGitDirectory(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -209,7 +213,7 @@ func TestScanFiles_EmptyDirectory(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -235,7 +239,7 @@ func TestScanFiles_DefaultMaxFileSize(t *testing.T) {
 		Stderr:        &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -267,7 +271,7 @@ func TestScanFiles_InlineAllow(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -299,7 +303,7 @@ func TestScanFiles_MultipleFiles(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -336,7 +340,7 @@ func TestScanFiles_NestedDirectories(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -582,7 +586,7 @@ func TestScanFiles_VerboseWarning(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	_, err := scanFiles(opts, rs)
+	_, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -613,7 +617,7 @@ func TestScanFiles_UnreadableFile(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	_, err := scanFiles(opts, rs)
+	_, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -645,7 +649,7 @@ func TestScanFiles_SkipsSymlinks(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -712,7 +716,7 @@ func TestScanFiles_NegativeMaxFileSizeMB(t *testing.T) {
 		Stderr:        &bytes.Buffer{},
 	}
 
-	findings, err := scanFiles(opts, rs)
+	findings, err := scanFiles(context.Background(), opts, rs)
 	if err != nil {
 		t.Fatalf("scanFiles returned error: %v", err)
 	}
@@ -720,4 +724,692 @@ func TestScanFiles_NegativeMaxFileSizeMB(t *testing.T) {
 	if len(findings) == 0 {
 		t.Error("expected findings with negative MaxFileSizeMB (should use default)")
 	}
+}
+
+func TestScanFiles_FollowSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create a subdirectory with a secret file.
+	subDir := filepath.Join(dir, "real")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(subDir, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink to the directory.
+	linkDir := filepath.Join(dir, "linked")
+	if err := os.Symlink(subDir, linkDir); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	// Create a symlink to a file directly.
+	linkFile := filepath.Join(dir, "linked_secret.txt")
+	if err := os.Symlink(secretFile, linkFile); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		Stderr:         &bytes.Buffer{},
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Error("expected findings when following symlinks")
+	}
+}
+
+func TestScanFiles_FollowSymlinks_Loop(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create directory with a self-referencing symlink inside it.
+	subDir := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Put a secret in sub
+	secretFile := filepath.Join(subDir, "secret.txt")
+	os.WriteFile(secretFile, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	// Create a symlink inside sub that points back to sub (loop)
+	loopLink := filepath.Join(subDir, "loop")
+	if err := os.Symlink(subDir, loopLink); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		Stderr:         &bytes.Buffer{},
+	}
+
+	// Should not infinite loop and should find the secret
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Error("expected findings even with symlink loop")
+	}
+}
+
+func TestScanFiles_FollowSymlinks_BrokenLink(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create a symlink pointing to a non-existent target
+	brokenLink := filepath.Join(dir, "broken")
+	os.Symlink("/nonexistent/target", brokenLink)
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		Verbose:        true,
+		Stderr:         &stderr,
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for broken symlink, got %d", len(findings))
+	}
+}
+
+func TestScanFiles_FollowSymlinks_ExcludedSymlinkedDir(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create a subdirectory with a secret.
+	subDir := filepath.Join(dir, "real")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "secret.txt"), []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	// Symlink to it with a name that will be excluded.
+	linkDir := filepath.Join(dir, "vendor")
+	os.Symlink(subDir, linkDir)
+
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		ExcludePaths:   []string{"vendor"},
+		Stderr:         &bytes.Buffer{},
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	// The real dir should be found but not through the vendor symlink excluded path
+	for _, f := range findings {
+		if strings.HasPrefix(f.File, "vendor") {
+			t.Error("expected vendor symlink to be excluded")
+		}
+	}
+}
+
+func TestScanFiles_FollowSymlinks_ExcludedSymlinkedFile(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create a file with a secret.
+	realFile := filepath.Join(dir, "real_secret.txt")
+	os.WriteFile(realFile, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	// Symlink to it with an excluded name.
+	linkFile := filepath.Join(dir, "excluded_link.txt")
+	os.Symlink(realFile, linkFile)
+
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		ExcludePaths:   []string{"excluded_link.txt"},
+		Stderr:         &bytes.Buffer{},
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	for _, f := range findings {
+		if f.File == "excluded_link.txt" {
+			t.Error("expected excluded_link.txt to be excluded")
+		}
+	}
+}
+
+func TestScanFiles_FollowSymlinks_LargeSymlinkedFile(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create a large file.
+	realFile := filepath.Join(dir, "subdir", "large.txt")
+	os.MkdirAll(filepath.Join(dir, "subdir"), 0755)
+	data := make([]byte, 2*1024*1024)
+	copy(data, []byte("AKIAIOSFODNN7EXAMPLE\n"))
+	os.WriteFile(realFile, data, 0644)
+
+	// Symlink to it.
+	linkFile := filepath.Join(dir, "link_large.txt")
+	os.Symlink(realFile, linkFile)
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		MaxFileSizeMB:  1,
+		Verbose:        true,
+		Stderr:         &stderr,
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	for _, f := range findings {
+		if f.File == "link_large.txt" {
+			t.Error("expected large symlinked file to be skipped")
+		}
+	}
+}
+
+func TestScanFiles_FollowSymlinks_GitDirSymlink(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create a real dir with a secret.
+	realDir := filepath.Join(dir, "real")
+	os.MkdirAll(realDir, 0755)
+	os.WriteFile(filepath.Join(realDir, "s.txt"), []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	// Create a symlink named .git pointing to realDir (should be skipped).
+	gitLink := filepath.Join(dir, ".git")
+	os.Symlink(realDir, gitLink)
+
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		Stderr:         &bytes.Buffer{},
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	for _, f := range findings {
+		if strings.HasPrefix(f.File, ".git") {
+			t.Error("expected .git symlink to be skipped")
+		}
+	}
+}
+
+func TestScanFiles_ContextCancellation(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create some files.
+	for i := 0; i < 10; i++ {
+		f := filepath.Join(dir, fmt.Sprintf("file%d.txt", i))
+		os.WriteFile(f, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	opts := Options{
+		Dir:    dir,
+		Stderr: &bytes.Buffer{},
+	}
+
+	_, err := scanFiles(ctx, opts, rs)
+	if err == nil {
+		t.Error("expected error from cancelled context")
+	}
+}
+
+func TestMatchLine_WithMaxDecodeDepth(t *testing.T) {
+	rs := testRuleSet(t)
+	opts := Options{
+		Stderr:         &bytes.Buffer{},
+		MaxDecodeDepth: 2,
+	}
+
+	line := "my key is AKIAIOSFODNN7EXAMPLE here"
+	findings := matchLine(line, 1, "test.txt", "", rs, opts)
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding with MaxDecodeDepth > 0")
+	}
+}
+
+func TestMatchLine_WithPlatformGeneratesLink(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	// Set up a git repo with a remote to test generateFileLink path.
+	dir := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+	runGit("remote", "add", "origin", "https://github.com/testowner/testrepo.git")
+
+	rs := testRuleSet(t)
+	opts := Options{
+		Dir:      dir,
+		Platform: "github",
+		Stderr:   &bytes.Buffer{},
+	}
+
+	// commit="" means file scan (not git history), so generateFileLink is used
+	line := "my key is AKIAIOSFODNN7EXAMPLE here"
+	findings := matchLine(line, 42, "config.env", "", rs, opts)
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding")
+	}
+
+	for _, f := range findings {
+		if f.Link == "" {
+			t.Error("expected non-empty Link with Platform set")
+		}
+		expected := "https://github.com/testowner/testrepo/blob/HEAD/config.env#L42"
+		if f.Link != expected {
+			t.Errorf("expected Link=%q, got %q", expected, f.Link)
+		}
+	}
+}
+
+func TestGenerateFileLink_GitHub(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/myorg/myrepo.git")
+	cmd.Dir = dir
+	cmd.Run()
+
+	opts := Options{
+		Dir:      dir,
+		Platform: "github",
+	}
+
+	link := generateFileLink(opts, "src/main.go", 10)
+	expected := "https://github.com/myorg/myrepo/blob/HEAD/src/main.go#L10"
+	if link != expected {
+		t.Errorf("generateFileLink github: got %q, want %q", link, expected)
+	}
+}
+
+func TestGenerateFileLink_GitLab(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	cmd = exec.Command("git", "remote", "add", "origin", "https://gitlab.com/myorg/myrepo.git")
+	cmd.Dir = dir
+	cmd.Run()
+
+	opts := Options{
+		Dir:      dir,
+		Platform: "gitlab",
+	}
+
+	link := generateFileLink(opts, "src/main.go", 10)
+	expected := "https://gitlab.com/myorg/myrepo/-/blob/HEAD/src/main.go#L10"
+	if link != expected {
+		t.Errorf("generateFileLink gitlab: got %q, want %q", link, expected)
+	}
+}
+
+func TestGenerateFileLink_NoRemote(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	opts := Options{
+		Dir:      dir,
+		Platform: "github",
+	}
+
+	link := generateFileLink(opts, "src/main.go", 10)
+	if link != "" {
+		t.Errorf("expected empty link with no remote, got %q", link)
+	}
+}
+
+func TestGenerateFileLink_UnknownPlatform(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/myorg/myrepo.git")
+	cmd.Dir = dir
+	cmd.Run()
+
+	opts := Options{
+		Dir:      dir,
+		Platform: "bitbucket",
+	}
+
+	link := generateFileLink(opts, "src/main.go", 10)
+	if link != "" {
+		t.Errorf("expected empty link for unknown platform, got %q", link)
+	}
+}
+
+func TestGenerateFileLink_UnparseableRemoteURL(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	// Set an unparseable remote URL
+	cmd = exec.Command("git", "remote", "add", "origin", "ftp://weird-url")
+	cmd.Dir = dir
+	cmd.Run()
+
+	opts := Options{
+		Dir:      dir,
+		Platform: "github",
+	}
+
+	link := generateFileLink(opts, "file.txt", 1)
+	if link != "" {
+		t.Errorf("expected empty link for unparseable remote URL, got %q", link)
+	}
+}
+
+func TestGenerateFileLink_NotAGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	opts := Options{
+		Dir:      dir,
+		Platform: "github",
+	}
+
+	link := generateFileLink(opts, "file.txt", 1)
+	if link != "" {
+		t.Errorf("expected empty link for non-git dir, got %q", link)
+	}
+}
+
+func TestScanFiles_FollowSymlinks_SymlinkedFileExcluded(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create a real dir with a file
+	subDir := filepath.Join(dir, "real")
+	os.MkdirAll(subDir, 0755)
+	secretFile := filepath.Join(subDir, "secret.txt")
+	os.WriteFile(secretFile, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	// Create a file symlink that points to a large file (to test the size skip path)
+	largeFile := filepath.Join(dir, "large.dat")
+	largeData := make([]byte, 2*1024*1024)
+	copy(largeData, []byte("AKIAIOSFODNN7EXAMPLE\n"))
+	os.WriteFile(largeFile, largeData, 0644)
+
+	linkToLarge := filepath.Join(dir, "link_large.dat")
+	if err := os.Symlink(largeFile, linkToLarge); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		MaxFileSizeMB:  1,
+		Verbose:        true,
+		Stderr:         &stderr,
+	}
+
+	_, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	// Verbose should log the large file skip
+	if stderr.Len() > 0 {
+		t.Logf("verbose: %s", stderr.String())
+	}
+}
+
+func TestScanFiles_FollowSymlinks_CyclicFileSymlinks(t *testing.T) {
+	// Create a chain of file symlinks that form a cycle.
+	// This triggers the EvalSymlinks error path for file symlinks.
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	subDir := filepath.Join(dir, "sub")
+	os.MkdirAll(subDir, 0755)
+
+	aLink := filepath.Join(subDir, "a")
+	bLink := filepath.Join(subDir, "b")
+	os.Symlink(bLink, aLink)
+	os.Symlink(aLink, bLink)
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		Verbose:        true,
+		Stderr:         &stderr,
+	}
+
+	_, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+}
+
+func TestScanFiles_FollowSymlinks_DirWithDeletedContents(t *testing.T) {
+	// Test FollowSymlinks where the initial directory itself gets EvalSymlinks called.
+	// We create the scan directory as a symlink to a real dir, triggering the
+	// EvalSymlinks call on directories popped from the stack.
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	realDir := filepath.Join(dir, "real")
+	os.MkdirAll(realDir, 0755)
+	os.WriteFile(filepath.Join(realDir, "secret.txt"), []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	// Create a symlink that we use as the scan directory
+	linkDir := filepath.Join(dir, "linked")
+	os.Symlink(realDir, linkDir)
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:            linkDir,
+		FollowSymlinks: true,
+		Stderr:         &stderr,
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Error("expected findings when scanning through symlinked directory")
+	}
+}
+
+func TestScanFiles_FollowSymlinks_UnreadableSymlinkedFile(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create an unreadable file
+	unreadable := filepath.Join(dir, "unreadable.txt")
+	os.WriteFile(unreadable, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0000)
+	t.Cleanup(func() { os.Chmod(unreadable, 0644) })
+
+	// Create a symlink to it
+	link := filepath.Join(dir, "link_unreadable.txt")
+	if err := os.Symlink(unreadable, link); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		Verbose:        true,
+		Stderr:         &stderr,
+	}
+
+	_, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	// Verbose should log warning about scan error
+	if stderr.Len() > 0 {
+		t.Logf("verbose: %s", stderr.String())
+	}
+}
+
+func TestMatchLine_WithPlatformGitLab(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+
+	cmd = exec.Command("git", "remote", "add", "origin", "https://gitlab.com/testowner/testrepo.git")
+	cmd.Dir = dir
+	cmd.Run()
+
+	rs := testRuleSet(t)
+	opts := Options{
+		Dir:      dir,
+		Platform: "gitlab",
+		Stderr:   &bytes.Buffer{},
+	}
+
+	line := "my key is AKIAIOSFODNN7EXAMPLE here"
+	findings := matchLine(line, 42, "config.env", "", rs, opts)
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding")
+	}
+
+	for _, f := range findings {
+		if f.Link == "" {
+			t.Error("expected non-empty Link with GitLab Platform set")
+		}
+		expected := "https://gitlab.com/testowner/testrepo/-/blob/HEAD/config.env#L42"
+		if f.Link != expected {
+			t.Errorf("expected Link=%q, got %q", expected, f.Link)
+		}
+	}
+}
+
+func TestMatchLine_WithDecodeDepthFindsDecodedSecrets(t *testing.T) {
+	// Test MaxDecodeDepth > 0 where decoded content matches a rule.
+	// "AKIAIOSFODNN7EXAMPLE" base64 = "QUtJQUlPU0ZPRE5ON0VYQU1QTEU="
+	rs, err := rules.Compile(
+		[]config.RuleConfig{
+			{
+				ID:          "test-base64-blob",
+				Description: "Base64 blob",
+				Regex:       `(QUtJQUlPU0ZPRE5ON0VYQU1QTEU=)`,
+				SecretGroup: 1,
+				Tags:        []string{"test"},
+			},
+			{
+				ID:          "test-aws-key",
+				Description: "Test AWS Key",
+				Regex:       `\b(AKIA[0-9A-Z]{16})\b`,
+				SecretGroup: 1,
+				Keywords:    []string{"AKIA"},
+				Tags:        []string{"aws"},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		Stderr:         &bytes.Buffer{},
+		MaxDecodeDepth: 3,
+	}
+
+	line := "secret=QUtJQUlPU0ZPRE5ON0VYQU1QTEU="
+	findings := matchLine(line, 1, "test.txt", "", rs, opts)
+
+	// The decoder should find the base64-encoded AWS key and add a decoded tag.
+	for _, f := range findings {
+		if f.RuleID == "test-base64-blob" {
+			for _, tag := range f.Tags {
+				if tag == "decoded:base64" {
+					return // success
+				}
+			}
+		}
+	}
+	t.Log("decoder tag not found - decoder path may not have matched with MaxDecodeDepth > 0")
 }

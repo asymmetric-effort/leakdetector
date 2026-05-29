@@ -199,7 +199,7 @@ func TestOutputFormatsIntegration(t *testing.T) {
 	formats := []string{"json", "csv", "junit", "sarif"}
 	for _, format := range formats {
 		t.Run(format, func(t *testing.T) {
-			w := output.New(format, false)
+			w := output.New(format, 0, "")
 			var buf bytes.Buffer
 			if err := w.Write(&buf, testFindings); err != nil {
 				t.Fatalf("Write(%s) failed: %v", format, err)
@@ -224,7 +224,7 @@ func TestRedactionIntegration(t *testing.T) {
 		},
 	}
 
-	w := output.New("json", true)
+	w := output.New("json", 100, "")
 	var buf bytes.Buffer
 	if err := w.Write(&buf, testFindings); err != nil {
 		t.Fatal(err)
@@ -423,7 +423,7 @@ func TestJSONRoundTrip(t *testing.T) {
 
 	findings, _ := scanner.Scan(opts, rs)
 
-	w := output.New("json", false)
+	w := output.New("json", 0, "")
 	var buf bytes.Buffer
 	w.Write(&buf, findings)
 

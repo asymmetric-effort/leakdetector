@@ -66,14 +66,14 @@ func TestCompile_UserRuleOverridesBuiltin(t *testing.T) {
 	}
 
 	// Verify original builtin regex no longer matches
-	_, _, matched := found.Match("AKIAIOSFODNN7EXAMPLE", "f.go", "")
-	if matched {
+	mr := found.Match("AKIAIOSFODNN7EXAMPLE", "f.go", "")
+	if mr.Found {
 		t.Error("overridden rule should NOT match old pattern")
 	}
 
 	// Verify custom regex matches
-	_, _, matched = found.Match("CUSTOM_AWS_ABCDEFGHIJ", "f.go", "")
-	if matched != true {
+	mr = found.Match("CUSTOM_AWS_ABCDEFGHIJ", "f.go", "")
+	if mr.Found != true {
 		t.Error("overridden rule should match new pattern")
 	}
 }
@@ -268,15 +268,15 @@ func TestMatch_BasicMatch(t *testing.T) {
 	}
 
 	rule := findRule(rs, "test")
-	fullMatch, secret, ok := rule.Match("found SECRET_HELLO here", "file.go", "")
-	if !ok {
+	mr := rule.Match("found SECRET_HELLO here", "file.go", "")
+	if !mr.Found {
 		t.Fatal("expected match")
 	}
-	if fullMatch != "SECRET_HELLO" {
-		t.Errorf("fullMatch = %q, want SECRET_HELLO", fullMatch)
+	if mr.FullMatch != "SECRET_HELLO" {
+		t.Errorf("fullMatch = %q, want SECRET_HELLO", mr.FullMatch)
 	}
-	if secret != "HELLO" {
-		t.Errorf("secret = %q, want HELLO", secret)
+	if mr.Secret != "HELLO" {
+		t.Errorf("secret = %q, want HELLO", mr.Secret)
 	}
 }
 
@@ -289,8 +289,8 @@ func TestMatch_NoMatch(t *testing.T) {
 	}
 
 	rule := findRule(rs, "test")
-	_, _, ok := rule.Match("nothing here", "file.go", "")
-	if ok {
+	mr := rule.Match("nothing here", "file.go", "")
+	if mr.Found {
 		t.Error("expected no match")
 	}
 }
@@ -305,8 +305,8 @@ func TestMatch_NilRegex(t *testing.T) {
 	}
 
 	rule := findRule(rs, "empty-regex")
-	_, _, ok := rule.Match("anything", "file.go", "")
-	if ok {
+	mr := rule.Match("anything", "file.go", "")
+	if mr.Found {
 		t.Error("expected no match for nil regex")
 	}
 }
@@ -320,13 +320,13 @@ func TestMatch_SecretGroupZero(t *testing.T) {
 	}
 
 	rule := findRule(rs, "test")
-	fullMatch, secret, ok := rule.Match("found SECRET_HELLO", "f.go", "")
-	if !ok {
+	mr := rule.Match("found SECRET_HELLO", "f.go", "")
+	if !mr.Found {
 		t.Fatal("expected match")
 	}
 	// SecretGroup 0 means secret == fullMatch
-	if secret != fullMatch {
-		t.Errorf("with SecretGroup=0, secret (%q) should equal fullMatch (%q)", secret, fullMatch)
+	if mr.Secret != mr.FullMatch {
+		t.Errorf("with SecretGroup=0, secret (%q) should equal fullMatch (%q)", mr.Secret, mr.FullMatch)
 	}
 }
 
@@ -339,13 +339,13 @@ func TestMatch_SecretGroupOutOfRange(t *testing.T) {
 	}
 
 	rule := findRule(rs, "test")
-	fullMatch, secret, ok := rule.Match("SECRET_HELLO", "f.go", "")
-	if !ok {
+	mr := rule.Match("SECRET_HELLO", "f.go", "")
+	if !mr.Found {
 		t.Fatal("expected match")
 	}
 	// Out of range group: secret falls back to fullMatch
-	if secret != fullMatch {
-		t.Errorf("out-of-range SecretGroup: secret (%q) should equal fullMatch (%q)", secret, fullMatch)
+	if mr.Secret != mr.FullMatch {
+		t.Errorf("out-of-range SecretGroup: secret (%q) should equal fullMatch (%q)", mr.Secret, mr.FullMatch)
 	}
 }
 
@@ -397,9 +397,9 @@ func TestMatch_KeywordFiltering(t *testing.T) {
 				t.Fatal(err)
 			}
 			rule := findRule(rs, "test-kw")
-			_, _, ok := rule.Match(tc.line, "f.go", "")
-			if ok != tc.wantMatch {
-				t.Errorf("Match() = %v, want %v", ok, tc.wantMatch)
+			mr := rule.Match(tc.line, "f.go", "")
+			if mr.Found != tc.wantMatch {
+				t.Errorf("Match() = %v, want %v", mr.Found, tc.wantMatch)
 			}
 		})
 	}
@@ -441,9 +441,9 @@ func TestMatch_PathFiltering(t *testing.T) {
 				t.Fatal(err)
 			}
 			rule := findRule(rs, "test-path")
-			_, _, ok := rule.Match("SECRET", tc.filePath, "")
-			if ok != tc.wantMatch {
-				t.Errorf("Match() = %v, want %v", ok, tc.wantMatch)
+			mr := rule.Match("SECRET", tc.filePath, "")
+			if mr.Found != tc.wantMatch {
+				t.Errorf("Match() = %v, want %v", mr.Found, tc.wantMatch)
 			}
 		})
 	}
@@ -486,9 +486,9 @@ func TestMatch_EntropyFiltering(t *testing.T) {
 				t.Fatal(err)
 			}
 			rule := findRule(rs, "test-ent")
-			_, _, ok := rule.Match("KEY="+tc.secret, "f.go", "")
-			if ok != tc.wantMatch {
-				t.Errorf("Match() = %v, want %v", ok, tc.wantMatch)
+			mr := rule.Match("KEY="+tc.secret, "f.go", "")
+			if mr.Found != tc.wantMatch {
+				t.Errorf("Match() = %v, want %v", mr.Found, tc.wantMatch)
 			}
 		})
 	}
@@ -513,14 +513,14 @@ func TestMatch_AllowlistFiltering(t *testing.T) {
 	rule := findRule(rs, "test-al")
 
 	// Secret contains stop word -> filtered
-	_, _, ok := rule.Match("SECRET_EXAMPLE", "f.go", "")
-	if ok {
+	mr := rule.Match("SECRET_EXAMPLE", "f.go", "")
+	if mr.Found {
 		t.Error("expected allowlist to filter out SECRET_EXAMPLE")
 	}
 
 	// Secret does not contain stop word -> not filtered
-	_, _, ok = rule.Match("SECRET_REAL", "f.go", "")
-	if !ok {
+	mr = rule.Match("SECRET_REAL", "f.go", "")
+	if !mr.Found {
 		t.Error("expected SECRET_REAL to match (not filtered)")
 	}
 }
@@ -876,21 +876,138 @@ func TestCompile_RuleWithAllowlists(t *testing.T) {
 	}
 
 	// Test path filtering
-	_, _, ok := r.Match("SECRET_REAL", "foo_test.go", "")
-	if ok {
+	mr := r.Match("SECRET_REAL", "foo_test.go", "")
+	if mr.Found {
 		t.Error("test file should be allowlisted by path")
 	}
 
 	// Test stop word filtering
-	_, _, ok = r.Match("SECRET_EXAMPLE", "main.go", "")
-	if ok {
+	mr = r.Match("SECRET_EXAMPLE", "main.go", "")
+	if mr.Found {
 		t.Error("EXAMPLE should be allowlisted by stop word")
 	}
 
 	// Normal match should succeed
-	_, _, ok = r.Match("SECRET_REAL", "main.go", "")
-	if !ok {
+	mr = r.Match("SECRET_REAL", "main.go", "")
+	if !mr.Found {
 		t.Error("SECRET_REAL in main.go should match")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CompileWithOptions tests
+// ---------------------------------------------------------------------------
+
+func TestCompileWithOptions_UseDefaultFalse(t *testing.T) {
+	rs, err := CompileWithOptions(nil, nil, CompileOptions{UseDefault: false})
+	if err != nil {
+		t.Fatalf("CompileWithOptions error: %v", err)
+	}
+	if len(rs.Rules) != 0 {
+		t.Errorf("expected 0 rules with UseDefault=false and no user rules, got %d", len(rs.Rules))
+	}
+}
+
+func TestCompileWithOptions_UseDefaultFalseWithUserRules(t *testing.T) {
+	custom := config.RuleConfig{
+		ID:    "custom-only",
+		Regex: `CUSTOM_[0-9]+`,
+	}
+
+	rs, err := CompileWithOptions([]config.RuleConfig{custom}, nil, CompileOptions{UseDefault: false})
+	if err != nil {
+		t.Fatalf("CompileWithOptions error: %v", err)
+	}
+	if len(rs.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(rs.Rules))
+	}
+	if rs.Rules[0].ID != "custom-only" {
+		t.Errorf("rule ID = %q, want %q", rs.Rules[0].ID, "custom-only")
+	}
+}
+
+func TestCompileWithOptions_DisabledRules(t *testing.T) {
+	rs, err := CompileWithOptions(nil, nil, CompileOptions{
+		UseDefault:    true,
+		DisabledRules: []string{"aws-access-key-id", "aws-secret-access-key"},
+	})
+	if err != nil {
+		t.Fatalf("CompileWithOptions error: %v", err)
+	}
+
+	for _, r := range rs.Rules {
+		if r.ID == "aws-access-key-id" || r.ID == "aws-secret-access-key" {
+			t.Errorf("disabled rule %q should not be in rule set", r.ID)
+		}
+	}
+	// Should still have other rules
+	if len(rs.Rules) == 0 {
+		t.Error("expected some rules to remain after disabling two")
+	}
+}
+
+func TestCompileWithOptions_DisabledRulesAlsoFiltersUserRules(t *testing.T) {
+	custom := config.RuleConfig{
+		ID:    "custom-disabled",
+		Regex: `CUSTOM`,
+	}
+
+	rs, err := CompileWithOptions([]config.RuleConfig{custom}, nil, CompileOptions{
+		UseDefault:    false,
+		DisabledRules: []string{"custom-disabled"},
+	})
+	if err != nil {
+		t.Fatalf("CompileWithOptions error: %v", err)
+	}
+	if len(rs.Rules) != 0 {
+		t.Errorf("expected 0 rules (user rule disabled), got %d", len(rs.Rules))
+	}
+}
+
+func TestCompileWithOptions_EnabledRules(t *testing.T) {
+	rs, err := CompileWithOptions(nil, nil, CompileOptions{
+		UseDefault:   true,
+		EnabledRules: []string{"aws-access-key-id"},
+	})
+	if err != nil {
+		t.Fatalf("CompileWithOptions error: %v", err)
+	}
+	if len(rs.Rules) != 1 {
+		t.Fatalf("expected 1 rule (only enabled one), got %d", len(rs.Rules))
+	}
+	if rs.Rules[0].ID != "aws-access-key-id" {
+		t.Errorf("rule ID = %q, want %q", rs.Rules[0].ID, "aws-access-key-id")
+	}
+}
+
+func TestCompileWithOptions_EnabledAndDisabledCombined(t *testing.T) {
+	// EnabledRules filters after compilation, DisabledRules filters during.
+	// If a rule is both disabled and enabled, disabled wins (it's never compiled).
+	rs, err := CompileWithOptions(nil, nil, CompileOptions{
+		UseDefault:    true,
+		DisabledRules: []string{"aws-access-key-id"},
+		EnabledRules:  []string{"aws-access-key-id", "aws-secret-access-key"},
+	})
+	if err != nil {
+		t.Fatalf("CompileWithOptions error: %v", err)
+	}
+	// aws-access-key-id was disabled so not compiled; enabled filter only sees aws-secret-access-key
+	if len(rs.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(rs.Rules))
+	}
+	if rs.Rules[0].ID != "aws-secret-access-key" {
+		t.Errorf("rule ID = %q, want %q", rs.Rules[0].ID, "aws-secret-access-key")
+	}
+}
+
+func TestCompileWithOptions_InvalidBuiltinNotPossible(t *testing.T) {
+	// Verify that compiling with defaults doesn't error (builtins are valid)
+	rs, err := CompileWithOptions(nil, nil, CompileOptions{UseDefault: true})
+	if err != nil {
+		t.Fatalf("CompileWithOptions error: %v", err)
+	}
+	if len(rs.Rules) == 0 {
+		t.Error("expected built-in rules")
 	}
 }
 
