@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Test
+coverage.out
+coverage.html
+
+# leakdetector
+.leakdetector.yml
+
+# Skills
+.claude/skills/
