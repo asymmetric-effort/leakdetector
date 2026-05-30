@@ -43,6 +43,33 @@ func TestIsArchive(t *testing.T) {
 	}
 }
 
+func TestIsSafeArchiveEntry(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"normal.txt", true},
+		{"dir/file.txt", true},
+		{"deep/nested/file.go", true},
+		{"../escape.txt", false},
+		{"dir/../../escape", false},
+		{"dir/../sibling", false},
+		{"/absolute/path", false},
+		{"", true},
+		{".", true},
+		{".hidden", true},
+		{"...", true}, // three dots is fine
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isSafeArchiveEntry(tc.name)
+			if got != tc.want {
+				t.Errorf("isSafeArchiveEntry(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 // createZipWithSecret creates a zip file at path containing a file with a secret.
 func createZipWithSecret(t *testing.T, path string) {
 	t.Helper()

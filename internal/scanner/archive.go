@@ -18,6 +18,20 @@ import (
 
 const maxArchiveFileSize = 100 * 1024 * 1024 // 100MB per extracted file
 
+// isSafeArchiveEntry returns true if the archive entry name does not contain
+// path traversal components. Rejects names with ".." segments or absolute paths.
+func isSafeArchiveEntry(name string) bool {
+	if filepath.IsAbs(name) {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
+		if part == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 // scanArchive scans the contents of an archive file for secrets.
 // archivePath is the path notation using ! as separator (e.g. "file.tar.gz!inner.txt").
 // depth tracks nesting level against maxDepth.
@@ -84,6 +98,9 @@ func scanZip(fullPath, relPath string, depth, maxDepth int, rs *rules.RuleSet, o
 		if f.FileInfo().IsDir() {
 			continue
 		}
+		if !isSafeArchiveEntry(f.Name) {
+			continue
+		}
 		if f.UncompressedSize64 > maxArchiveFileSize {
 			continue
 		}
@@ -114,7 +131,7 @@ func scanGzip(fullPath, relPath string, depth, maxDepth int, rs *rules.RuleSet, 
 
 	innerName := strings.TrimSuffix(filepath.Base(fullPath), filepath.Ext(fullPath))
 	innerPath := relPath + "!" + innerName
-	return scanArchiveReader(gz, innerPath, "", rs, opts)
+	return scanArchiveReader(io.LimitReader(gz, maxArchiveFileSize), innerPath, "", rs, opts)
 }
 
 func scanTar(fullPath, relPath string, depth, maxDepth int, rs *rules.RuleSet, opts Options) []finding.Finding {
@@ -151,7 +168,7 @@ func scanBzip2(fullPath, relPath string, depth, maxDepth int, rs *rules.RuleSet,
 
 	innerName := strings.TrimSuffix(filepath.Base(fullPath), filepath.Ext(fullPath))
 	innerPath := relPath + "!" + innerName
-	return scanArchiveReader(bzip2.NewReader(f), innerPath, "", rs, opts)
+	return scanArchiveReader(io.LimitReader(bzip2.NewReader(f), maxArchiveFileSize), innerPath, "", rs, opts)
 }
 
 func scanTarBzip2(fullPath, relPath string, depth, maxDepth int, rs *rules.RuleSet, opts Options) []finding.Finding {
@@ -177,6 +194,9 @@ func scanTarReader(tr *tar.Reader, relPath string, depth, maxDepth int, rs *rule
 		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
+		if !isSafeArchiveEntry(hdr.Name) {
+			continue
+		}
 		if hdr.Size > maxArchiveFileSize {
 			continue
 		}
@@ -196,7 +216,7 @@ func scanArchiveReader(r io.Reader, filePath, commit string, rs *rules.RuleSet, 
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
-		lineFindings := matchLine(line, lineNum, filePath, commit, rs, opts, nil, 0)
+		lineFindings := matchLine(line, lineNum, filePath, commit, rs, opts)
 		findings = append(findings, lineFindings...)
 	}
 	return findings

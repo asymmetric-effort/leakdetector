@@ -62,7 +62,7 @@ func Parse(args []string, w io.Writer) (Options, error) {
 	fs.BoolVar(&opts.SkipHistory, "skip-history", false, "skip scanning git history")
 	fs.StringVar(&opts.Branch, "branch", "", "scan a specific branch")
 	fs.StringVar(&opts.ConfigPath, "config", "", "path to configuration file (default: .leakdetector.yml)")
-	fs.StringVar(&opts.ReportPath, "report", "", "path to write report output (default: stdout)")
+	fs.StringVar(&opts.ReportPath, "report", "", "path to write report output; file is created or overwritten (default: stdout)")
 	fs.StringVar(&opts.ReportFormat, "format", "json", "output format: json, csv, junit, sarif, template")
 	fs.StringVar(&opts.TemplatePath, "report-template", "", "path to Go template file (used with --format template)")
 	fs.IntVar(&opts.RedactPercent, "redact", 0, "redact secrets: percentage to show (0=full redact, 100=no redact)")
@@ -103,7 +103,44 @@ func Parse(args []string, w io.Writer) (Options, error) {
 		return opts, err
 	}
 
+	// Validate branch name.
+	if opts.Branch != "" {
+		if err := validateBranchName(opts.Branch); err != nil {
+			return opts, err
+		}
+	}
+
 	return opts, nil
+}
+
+// validateBranchName checks that a branch name contains only characters
+// valid in git ref names: alphanumeric, hyphen, underscore, dot, and slash.
+func validateBranchName(name string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("branch name must not be empty")
+	}
+	if name[0] == '-' {
+		return fmt.Errorf("invalid branch name %q: must not start with '-'", name)
+	}
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("invalid branch name %q: must not contain '..'", name)
+	}
+	if strings.HasSuffix(name, ".lock") {
+		return fmt.Errorf("invalid branch name %q: must not end with '.lock'", name)
+	}
+	for _, c := range name {
+		if !isValidBranchChar(c) {
+			return fmt.Errorf("invalid branch name %q: contains invalid character %q", name, c)
+		}
+	}
+	return nil
+}
+
+func isValidBranchChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') ||
+		c == '-' || c == '_' || c == '.' || c == '/'
 }
 
 // Run executes leakdetector with the given options.

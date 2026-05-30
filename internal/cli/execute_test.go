@@ -391,10 +391,10 @@ func TestExecuteExtendPathValid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create main config that extends the external one.
+	// Create main config that extends the external one (relative path).
 	mainConfig := `extend:
   use_default: true
-  path: ` + extPath + `
+  path: ext-config.yml
 `
 	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
 		t.Fatal(err)
@@ -807,10 +807,10 @@ func TestExecuteScanError(t *testing.T) {
 func TestExecuteExtendPathNonExistent(t *testing.T) {
 	dir := t.TempDir()
 
-	// Point extend.path to a non-existent file (IsNotExist - should be tolerated).
+	// Point extend.path to a non-existent relative file (should be tolerated).
 	mainConfig := `extend:
   use_default: true
-  path: /nonexistent/path/to/config.yml
+  path: nonexistent-config.yml
 `
 	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
 		t.Fatal(err)
@@ -830,5 +830,49 @@ func TestExecuteExtendPathNonExistent(t *testing.T) {
 	// Non-existent extend path is tolerated (os.IsNotExist).
 	if code != 0 {
 		t.Errorf("expected exit code 0 (non-existent extend tolerated), got %d; stderr: %s", code, stderr.String())
+	}
+}
+
+func TestExecuteExtendPathAbsoluteRejected(t *testing.T) {
+	dir := t.TempDir()
+
+	mainConfig := `extend:
+  path: /etc/shadow
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (absolute extend.path rejected), got %d", code)
+	}
+}
+
+func TestExecuteExtendPathTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+
+	mainConfig := `extend:
+  path: ../../etc/shadow
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (traversal extend.path rejected), got %d", code)
 	}
 }

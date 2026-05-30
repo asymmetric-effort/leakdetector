@@ -405,7 +405,7 @@ func TestMatchLine_PopulatesFindingFields(t *testing.T) {
 	opts := Options{Stderr: &bytes.Buffer{}}
 
 	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 42, "config.env", "abc123", rs, opts, nil, 0)
+	findings := matchLine(line, 42, "config.env", "abc123", rs, opts)
 
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding")
@@ -462,7 +462,7 @@ func TestMatchLine_WithInlineAllow(t *testing.T) {
 	opts := Options{Stderr: &bytes.Buffer{}}
 
 	line := "AKIAIOSFODNN7EXAMPLE // leakdetector:allow"
-	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings with inline allow, got %d", len(findings))
 	}
@@ -473,7 +473,7 @@ func TestMatchLine_NoMatch(t *testing.T) {
 	opts := Options{Stderr: &bytes.Buffer{}}
 
 	line := "this is a perfectly clean line with no secrets"
-	findings := matchLine(line, 1, "clean.txt", "", rs, opts, nil, 0)
+	findings := matchLine(line, 1, "clean.txt", "", rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for clean line, got %d", len(findings))
 	}
@@ -505,7 +505,7 @@ func TestMatchLine_GlobalAllowlistSuppresses(t *testing.T) {
 
 	opts := Options{Stderr: &bytes.Buffer{}}
 	line := "AKIAIOSFODNN7EXAMPLE"
-	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts)
 
 	// The global allowlist should suppress the finding for the test rule.
 	for _, f := range findings {
@@ -545,7 +545,7 @@ func TestMatchLine_DecoderFindsSecretsInEncoded(t *testing.T) {
 
 	opts := Options{Stderr: &bytes.Buffer{}}
 	line := "secret=QUtJQUlPU0ZPRE5ON0VYQU1QTEU="
-	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts)
 
 	// The decoder should decode the base64 secret and find AKIAIOSFODNN7EXAMPLE,
 	// which matches test-aws-key. This adds "decoded:base64" tag.
@@ -994,64 +994,33 @@ func TestMatchLine_WithMaxDecodeDepth(t *testing.T) {
 	}
 
 	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts)
 
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding with MaxDecodeDepth > 0")
 	}
 }
 
-func TestMatchLine_WithPlatformGeneratesLink(t *testing.T) {
+// Platform link generation is tested via scanBuffer tests in buffer_test.go.
+
+func TestGenerateFileLinkDirect(t *testing.T) {
 	if !gitAvailable() {
 		t.Skip("git not available")
 	}
 
-	// Set up a git repo with a remote to test generateFileLink path.
 	dir := t.TempDir()
-	runGit := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test",
-			"GIT_AUTHOR_EMAIL=test@test.com",
-			"GIT_COMMITTER_NAME=Test",
-			"GIT_COMMITTER_EMAIL=test@test.com",
-		)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v failed: %v\n%s", args, err, out)
-		}
-	}
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	cmd.Run()
+	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/testowner/testrepo.git")
+	cmd.Dir = dir
+	cmd.Run()
 
-	runGit("init")
-	runGit("config", "user.email", "test@test.com")
-	runGit("config", "user.name", "Test")
-	runGit("remote", "add", "origin", "https://github.com/testowner/testrepo.git")
-
-	rs := testRuleSet(t)
-	opts := Options{
-		Dir:      dir,
-		Platform: "github",
-		Stderr:   &bytes.Buffer{},
-	}
-
-	// commit="" means file scan (not git history), so generateFileLink is used
-	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 42, "config.env", "", rs, opts, nil, 0)
-
-	if len(findings) == 0 {
-		t.Fatal("expected at least one finding")
-	}
-
-	for _, f := range findings {
-		if f.Link == "" {
-			t.Error("expected non-empty Link with Platform set")
-		}
-		expected := "https://github.com/testowner/testrepo/blob/HEAD/config.env#L42"
-		if f.Link != expected {
-			t.Errorf("expected Link=%q, got %q", expected, f.Link)
-		}
+	opts := Options{Dir: dir, Platform: "github", Stderr: &bytes.Buffer{}}
+	link := generateFileLink(opts, "config.env", 42)
+	expected := "https://github.com/testowner/testrepo/blob/HEAD/config.env#L42"
+	if link != expected {
+		t.Errorf("expected %q, got %q", expected, link)
 	}
 }
 
@@ -1327,42 +1296,49 @@ func TestScanFiles_FollowSymlinks_UnreadableSymlinkedFile(t *testing.T) {
 	}
 }
 
-func TestMatchLine_WithPlatformGitLab(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
+// GitLab platform link generation is tested via scanBuffer tests in buffer_test.go.
 
+func TestScanFiles_FollowSymlinks_EscapeBlocked(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-
-	cmd = exec.Command("git", "remote", "add", "origin", "https://gitlab.com/testowner/testrepo.git")
-	cmd.Dir = dir
-	cmd.Run()
-
 	rs := testRuleSet(t)
+
+	// Create a directory outside the scan root with a secret.
+	outsideDir := t.TempDir()
+	os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	// Create a symlink inside the scan root pointing outside.
+	if err := os.Symlink(outsideDir, filepath.Join(dir, "escape")); err != nil {
+		t.Skip("symlinks not supported")
+	}
+
+	var stderr bytes.Buffer
 	opts := Options{
-		Dir:      dir,
-		Platform: "gitlab",
-		Stderr:   &bytes.Buffer{},
+		Dir:            dir,
+		FollowSymlinks: true,
+		Verbose:        true,
+		Stderr:         &stderr,
 	}
 
-	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 42, "config.env", "", rs, opts, nil, 0)
-
-	if len(findings) == 0 {
-		t.Fatal("expected at least one finding")
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
 	}
 
+	// Should not find secrets from outside the scan root.
 	for _, f := range findings {
-		if f.Link == "" {
-			t.Error("expected non-empty Link with GitLab Platform set")
+		if strings.Contains(f.File, "escape") {
+			t.Error("expected symlink escape to be blocked")
 		}
-		expected := "https://gitlab.com/testowner/testrepo/-/blob/HEAD/config.env#L42"
-		if f.Link != expected {
-			t.Errorf("expected Link=%q, got %q", expected, f.Link)
-		}
+	}
+
+	// Should have logged a warning.
+	if !strings.Contains(stderr.String(), "symlink escapes scan root") {
+		t.Error("expected symlink escape warning in verbose output")
+	}
+
+	// Verify no findings leaked from outside.
+	if len(findings) > 0 {
+		t.Errorf("expected 0 findings from escape-blocked scan, got %d", len(findings))
 	}
 }
 
@@ -1399,7 +1375,7 @@ func TestMatchLine_WithDecodeDepthFindsDecodedSecrets(t *testing.T) {
 	}
 
 	line := "secret=QUtJQUlPU0ZPRE5ON0VYQU1QTEU="
-	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts)
 
 	// The decoder should find the base64-encoded AWS key and add a decoded tag.
 	for _, f := range findings {

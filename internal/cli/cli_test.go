@@ -343,6 +343,86 @@ func TestParseDefaultsNewFields(t *testing.T) {
 	}
 }
 
+func TestValidateBranchName(t *testing.T) {
+	tests := []struct {
+		name    string
+		branch  string
+		wantErr bool
+	}{
+		{"valid simple", "main", false},
+		{"valid with slash", "feature/auth", false},
+		{"valid with dash", "fix-bug", false},
+		{"valid with underscore", "my_branch", false},
+		{"valid with dot", "release.1.0", false},
+		{"valid with numbers", "v2", false},
+		{"starts with dash", "-bad", true},
+		{"contains dotdot", "a..b", true},
+		{"ends with .lock", "branch.lock", true},
+		{"contains space", "has space", true},
+		{"contains tilde", "bad~1", true},
+		{"contains caret", "bad^2", true},
+		{"contains colon", "bad:ref", true},
+		{"contains backslash", "bad\\path", true},
+		{"contains question", "bad?", true},
+		{"contains asterisk", "bad*", true},
+		{"contains bracket", "bad[0]", true},
+		{"empty string", "", true},
+		{"git flag injection", "--exec=evil", true},
+		{"git option", "-c", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBranchName(tc.branch)
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error for branch %q, got nil", tc.branch)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error for branch %q: %v", tc.branch, err)
+			}
+		})
+	}
+}
+
+func TestContainsDotDot(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"normal/path", false},
+		{"../escape", true},
+		{"dir/../../etc", true},
+		{"dir/../sibling", true},
+		{"...", false},
+		{"dir/..file", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			got := containsDotDot(tc.path)
+			if got != tc.want {
+				t.Errorf("containsDotDot(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseBranchValidation(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Valid branch should parse.
+	_, err := Parse([]string{"--branch", "main"}, &buf)
+	if err != nil {
+		t.Errorf("expected valid branch to parse, got: %v", err)
+	}
+
+	// Invalid branch should fail.
+	_, err = Parse([]string{"--branch", "--exec=evil"}, &buf)
+	if err == nil {
+		t.Error("expected error for malicious branch name")
+	}
+}
+
 func TestParseCombinedFlags(t *testing.T) {
 	var buf bytes.Buffer
 	opts, err := Parse([]string{

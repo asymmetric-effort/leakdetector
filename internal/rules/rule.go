@@ -299,6 +299,29 @@ func (r *CompiledRule) Match(line, filePath, commit string) MatchResult {
 	}
 }
 
+// MatchContent checks pre-extracted match and secret strings against entropy
+// thresholds and allowlists. Used by the buffer scanner where regex matching
+// is done externally.
+func (r *CompiledRule) MatchContent(fullMatch, secret, filePath, commit string) MatchResult {
+	e := entropy.Shannon(secret)
+	if r.Entropy > 0 && e < r.Entropy {
+		return MatchResult{}
+	}
+
+	for i := range r.Allowlists {
+		if r.Allowlists[i].IsAllowed(secret, fullMatch, fullMatch, filePath, commit) {
+			return MatchResult{}
+		}
+	}
+
+	return MatchResult{
+		FullMatch: fullMatch,
+		Secret:    secret,
+		Entropy:   e,
+		Found:     true,
+	}
+}
+
 // IsAllowed returns true if a finding should be ignored based on this allowlist.
 func (al *CompiledAllowlist) IsAllowed(secret, match, line, filePath, commit string) bool {
 	isAnd := strings.EqualFold(al.Condition, "AND")

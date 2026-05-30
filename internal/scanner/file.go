@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -29,6 +28,15 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 
 	var findings []finding.Finding
 
+	// Resolve the scan root so symlink boundary checks work correctly
+	// when opts.Dir is itself a symlink.
+	scanRoot := opts.Dir
+	if opts.FollowSymlinks {
+		if resolved, err := filepath.EvalSymlinks(opts.Dir); err == nil {
+			scanRoot = resolved
+		}
+	}
+
 	// Track visited real paths when following symlinks to guard against loops.
 	var visited map[string]struct{}
 	if opts.FollowSymlinks {
@@ -51,10 +59,16 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 		current := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 
-		// If following symlinks, resolve and check for loops on directories.
+		// If following symlinks, resolve and check for loops and boundary escape.
 		if opts.FollowSymlinks {
 			realPath, err := filepath.EvalSymlinks(current)
-			if err != nil { // Defensive: only fails if path deleted or broken
+			if err != nil {
+				continue
+			}
+			if !isWithinDir(realPath, scanRoot) {
+				if opts.Verbose {
+					fmt.Fprintf(opts.Stderr, "warning: symlink escapes scan root: %s -> %s\n", current, realPath)
+				}
 				continue
 			}
 			if _, seen := visited[realPath]; seen {
@@ -86,6 +100,12 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 				if err != nil {
 					if opts.Verbose {
 						fmt.Fprintf(opts.Stderr, "warning: cannot resolve symlink %s: %v\n", fullPath, err)
+					}
+					continue
+				}
+				if !isWithinDir(realPath, scanRoot) {
+					if opts.Verbose {
+						fmt.Fprintf(opts.Stderr, "warning: symlink escapes scan root: %s -> %s\n", relPath, realPath)
 					}
 					continue
 				}
@@ -182,41 +202,23 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 	return findings, nil
 }
 
-// scanSingleFile reads a file line-by-line and checks each line against all rules.
+// scanSingleFile reads an entire file into a byte buffer and scans it using
+// a sliding window to detect secrets, including those split across lines.
 func scanSingleFile(relPath, fullPath, commit string, rs *rules.RuleSet, opts Options) ([]finding.Finding, error) {
-	f, err := os.Open(fullPath)
+	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
-	// Collect all lines for proximity checking.
-	var allLines []string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, maxLineSize), maxLineSize)
-	for sc.Scan() {
-		allLines = append(allLines, sc.Text())
-	}
-
-	if err := sc.Err(); err != nil {
-		if opts.Verbose {
-			fmt.Fprintf(opts.Stderr, "warning: scanner error in %s: %v\n", relPath, err)
-		}
-	}
-
-	var findings []finding.Finding
-	for lineIdx, line := range allLines {
-		lineNum := lineIdx + 1
-		lineFindings := matchLine(line, lineNum, relPath, commit, rs, opts, allLines, lineIdx)
-		findings = append(findings, lineFindings...)
-	}
-
+	fb := newFileBuffer(data)
+	findings := scanBuffer(fb, relPath, commit, rs, opts)
 	return findings, nil
 }
 
 // matchLine checks a single line against all rules and returns any findings.
-// allLines and lineIdx are optional (can be nil/0) and used for proximity rule checking.
-func matchLine(line string, lineNum int, filePath, commit string, rs *rules.RuleSet, opts Options, allLines []string, lineIdx int) []finding.Finding {
+// Used by streamed scanners (git history, stdin, staged, archive) where the
+// full file buffer is not available. Proximity rules are not checked in this path.
+func matchLine(line string, lineNum int, filePath, commit string, rs *rules.RuleSet, opts Options) []finding.Finding {
 	if hasInlineAllow(line) {
 		return nil
 	}
@@ -236,14 +238,6 @@ func matchLine(line string, lineNum int, filePath, commit string, rs *rules.Rule
 			continue
 		}
 
-		// Check proximity/composite rules.
-		if len(rule.Required) > 0 && allLines != nil {
-			matchCol := strings.Index(line, mr.FullMatch)
-			if !rule.CheckProximity(allLines, lineIdx, matchCol) {
-				continue
-			}
-		}
-
 		f := finding.Finding{
 			RuleID:      rule.ID,
 			Description: rule.Description,
@@ -260,28 +254,16 @@ func matchLine(line string, lineNum int, filePath, commit string, rs *rules.Rule
 			Fingerprint: finding.ComputeFingerprint(commit, filePath, rule.ID, lineNum),
 		}
 
-		// Generate platform link for file findings if platform is set.
-		if opts.Platform != "" && commit == "" {
-			link := generateFileLink(opts, filePath, lineNum)
-			if link != "" {
-				f.Link = link
-			}
-		}
-
 		// Attempt decoding to find additional secrets.
-		maxDepth := opts.MaxDecodeDepth
-		if opts.MaxDecodeDepth == 0 {
-			maxDepth = 0
-		} else if opts.MaxDecodeDepth > 0 {
-			maxDepth = opts.MaxDecodeDepth
-		}
-		decoded := decoder.Decode(mr.Secret, maxDepth)
-		for _, d := range decoded {
-			for j := range rs.Rules {
-				dmr := rs.Rules[j].Match(d.Value, filePath, commit)
-				if dmr.Found && !isGlobalAllowed(rs.Allowlists, dmr.Secret, dmr.FullMatch, d.Value, filePath, commit) {
-					f.Tags = append(f.Tags, "decoded:"+d.Encoding)
-					break
+		if opts.MaxDecodeDepth > 0 {
+			decoded := decoder.Decode(mr.Secret, opts.MaxDecodeDepth)
+			for _, d := range decoded {
+				for j := range rs.Rules {
+					dmr := rs.Rules[j].Match(d.Value, filePath, commit)
+					if dmr.Found && !isGlobalAllowed(rs.Allowlists, dmr.Secret, dmr.FullMatch, d.Value, filePath, commit) {
+						f.Tags = append(f.Tags, "decoded:"+d.Encoding)
+						break
+					}
 				}
 			}
 		}
@@ -320,4 +302,14 @@ func copyTags(tags []string) []string {
 	out := make([]string, len(tags))
 	copy(out, tags)
 	return out
+}
+
+// isWithinDir returns true if realPath is under rootDir.
+func isWithinDir(realPath, rootDir string) bool {
+	// Ensure rootDir ends with separator for correct prefix matching.
+	prefix := rootDir
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return realPath == rootDir || strings.HasPrefix(realPath, prefix)
 }

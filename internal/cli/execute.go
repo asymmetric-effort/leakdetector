@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/asymmetric-effort/leakdetector/internal/config"
 	"github.com/asymmetric-effort/leakdetector/internal/finding"
@@ -12,6 +13,16 @@ import (
 	"github.com/asymmetric-effort/leakdetector/internal/rules"
 	"github.com/asymmetric-effort/leakdetector/internal/scanner"
 )
+
+// containsDotDot returns true if a path contains a ".." component.
+func containsDotDot(path string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
 
 func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 	// Load configuration
@@ -31,9 +42,24 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 
 	// Load extended config if specified.
 	if cfg.Extend != nil && cfg.Extend.Path != "" {
-		extCfg, extErr := config.Load(cfg.Extend.Path)
+		extPath := cfg.Extend.Path
+
+		// Reject absolute paths and traversal in extend.path.
+		if filepath.IsAbs(extPath) {
+			fmt.Fprintf(stderr, "error: extend.path must be a relative path, got %q\n", extPath)
+			return 2
+		}
+		if containsDotDot(extPath) {
+			fmt.Fprintf(stderr, "error: extend.path must not contain '..', got %q\n", extPath)
+			return 2
+		}
+
+		// Resolve relative to the config file's directory.
+		extPath = filepath.Join(filepath.Dir(cfgPath), extPath)
+
+		extCfg, extErr := config.Load(extPath)
 		if extErr != nil && !os.IsNotExist(extErr) {
-			fmt.Fprintf(stderr, "error: failed to load extended config %s: %v\n", cfg.Extend.Path, extErr)
+			fmt.Fprintf(stderr, "error: failed to load extended config %s: %v\n", extPath, extErr)
 			return 2
 		}
 		if extCfg != nil {

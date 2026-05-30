@@ -1012,6 +1012,87 @@ func TestCompileWithOptions_InvalidBuiltinNotPossible(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// CompiledRule.MatchContent tests
+// ---------------------------------------------------------------------------
+
+func TestMatchContent_ValidMatchPassingEntropy(t *testing.T) {
+	rs, err := CompileWithOptions([]config.RuleConfig{
+		{
+			ID:      "test-mc",
+			Regex:   `SECRET=([A-Za-z0-9]+)`,
+			Entropy: 3.0,
+		},
+	}, nil, CompileOptions{UseDefault: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := findRule(rs, "test-mc")
+
+	// High-entropy secret should pass.
+	mr := rule.MatchContent("SECRET=a9X7kL2mQ5nR8pW4", "a9X7kL2mQ5nR8pW4", "file.go", "")
+	if !mr.Found {
+		t.Fatal("expected MatchContent to find high-entropy match")
+	}
+	if mr.Secret != "a9X7kL2mQ5nR8pW4" {
+		t.Errorf("Secret = %q, want %q", mr.Secret, "a9X7kL2mQ5nR8pW4")
+	}
+	if mr.FullMatch != "SECRET=a9X7kL2mQ5nR8pW4" {
+		t.Errorf("FullMatch = %q, want %q", mr.FullMatch, "SECRET=a9X7kL2mQ5nR8pW4")
+	}
+	if mr.Entropy <= 0 {
+		t.Errorf("expected positive entropy, got %f", mr.Entropy)
+	}
+}
+
+func TestMatchContent_FailingEntropy(t *testing.T) {
+	rs, err := CompileWithOptions([]config.RuleConfig{
+		{
+			ID:      "test-mc-ent",
+			Regex:   `SECRET=([A-Za-z0-9]+)`,
+			Entropy: 4.5,
+		},
+	}, nil, CompileOptions{UseDefault: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := findRule(rs, "test-mc-ent")
+
+	// "aaaa" has very low entropy.
+	mr := rule.MatchContent("SECRET=aaaa", "aaaa", "file.go", "")
+	if mr.Found {
+		t.Error("expected MatchContent to reject low-entropy secret")
+	}
+}
+
+func TestMatchContent_BlockedByAllowlist(t *testing.T) {
+	rs, err := CompileWithOptions([]config.RuleConfig{
+		{
+			ID:    "test-mc-al",
+			Regex: `SECRET_([A-Z]+)`,
+			Allowlists: []config.Allowlist{
+				{StopWords: []string{"example"}},
+			},
+		},
+	}, nil, CompileOptions{UseDefault: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := findRule(rs, "test-mc-al")
+
+	// Secret contains allowlisted stop word.
+	mr := rule.MatchContent("SECRET_EXAMPLE", "EXAMPLE", "file.go", "")
+	if mr.Found {
+		t.Error("expected MatchContent to be blocked by allowlist stop word")
+	}
+
+	// Secret that does NOT contain the stop word should pass.
+	mr = rule.MatchContent("SECRET_REALVALUE", "REALVALUE", "file.go", "")
+	if !mr.Found {
+		t.Error("expected MatchContent to pass for non-allowlisted secret")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

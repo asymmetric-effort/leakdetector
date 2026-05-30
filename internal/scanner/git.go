@@ -148,7 +148,7 @@ func scanGit(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.Fi
 				continue
 			}
 
-			lineFindings := matchLine(content, lineNum, filePath, commitSHA, rs, opts, nil, 0)
+			lineFindings := matchLine(content, lineNum, filePath, commitSHA, rs, opts)
 			for i := range lineFindings {
 				lineFindings[i].Author = author
 				lineFindings[i].Email = email
