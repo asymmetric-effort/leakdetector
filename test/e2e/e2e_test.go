@@ -233,13 +233,12 @@ func TestReportToFile(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "secret.txt"),
 		[]byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
 
-	reportPath := filepath.Join(dir, "report.json")
-	_, _, code := run(t, dir, "", "--skip-history", "--report", reportPath)
+	_, _, code := run(t, dir, "", "--skip-history", "--report", "report.json")
 	if code != 1 {
 		t.Errorf("expected exit code 1, got %d", code)
 	}
 
-	data, err := os.ReadFile(reportPath)
+	data, err := os.ReadFile(filepath.Join(dir, "report.json"))
 	if err != nil {
 		t.Fatalf("failed to read report file: %v", err)
 	}
@@ -373,9 +372,10 @@ func TestInvalidFlag(t *testing.T) {
 
 func TestInvalidReportPath(t *testing.T) {
 	dir := t.TempDir()
+	// Absolute paths are rejected.
 	_, stderr, code := run(t, dir, "", "--skip-history", "--report", "/nonexistent/dir/report.json")
 	if code != 2 {
-		t.Errorf("expected exit code 2 for invalid report path, got %d", code)
+		t.Errorf("expected exit code 2 for absolute report path, got %d", code)
 	}
 	if !strings.Contains(stderr, "error") {
 		t.Errorf("expected error message, got: %q", stderr)

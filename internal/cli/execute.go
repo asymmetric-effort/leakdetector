@@ -143,6 +143,14 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 	writer := output.New(opts.ReportFormat, opts.RedactPercent, opts.TemplatePath)
 	var dest io.Writer = stdout
 	if opts.ReportPath != "" {
+		if filepath.IsAbs(opts.ReportPath) {
+			fmt.Fprintf(stderr, "error: --report path must be relative, got %q\n", opts.ReportPath)
+			return 2
+		}
+		if containsDotDot(opts.ReportPath) {
+			fmt.Fprintf(stderr, "error: --report path must not contain '..', got %q\n", opts.ReportPath)
+			return 2
+		}
 		f, err := os.Create(opts.ReportPath)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: failed to create report file: %v\n", err)

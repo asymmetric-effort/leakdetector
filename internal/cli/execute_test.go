@@ -198,20 +198,24 @@ func TestExecuteReportToFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reportPath := filepath.Join(dir, "report.json")
+	// Use relative path — chdir to dir so the report is created there.
+	orig, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(orig)
+
 	var stdout, stderr bytes.Buffer
 	opts := Options{
 		SkipHistory:  true,
 		ReportFormat: "json",
-		ReportPath:   reportPath,
+		ReportPath:   "report.json",
 		ExitCode:     1,
 	}
 	code := execute(opts, dir, &stdout, &stderr)
 	if code != 1 {
-		t.Errorf("expected exit code 1, got %d", code)
+		t.Errorf("expected exit code 1, got %d; stderr: %s", code, stderr.String())
 	}
 
-	data, err := os.ReadFile(reportPath)
+	data, err := os.ReadFile(filepath.Join(dir, "report.json"))
 	if err != nil {
 		t.Fatalf("failed to read report: %v", err)
 	}
@@ -226,12 +230,42 @@ func TestExecuteInvalidReportPath(t *testing.T) {
 	opts := Options{
 		SkipHistory:  true,
 		ReportFormat: "json",
-		ReportPath:   filepath.Join(dir, "nonexistent", "subdir", "report.json"),
+		ReportPath:   "nonexistent/subdir/report.json",
 		ExitCode:     1,
 	}
 	code := execute(opts, dir, &stdout, &stderr)
 	if code != 2 {
 		t.Errorf("expected exit code 2 (report create error), got %d", code)
+	}
+}
+
+func TestExecuteReportAbsolutePathRejected(t *testing.T) {
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ReportPath:   "/tmp/evil-report.json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (absolute report path rejected), got %d", code)
+	}
+}
+
+func TestExecuteReportTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ReportPath:   "../../etc/crontab",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (traversal report path rejected), got %d", code)
 	}
 }
 
