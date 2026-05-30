@@ -170,6 +170,12 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 				continue
 			}
 			findings = append(findings, fileFindings...)
+
+			// Scan archive contents if enabled.
+			if opts.MaxArchiveDepth > 0 && isArchive(fullPath) {
+				archiveFindings := scanArchive(fullPath, relPath, 1, opts.MaxArchiveDepth, rs, opts)
+				findings = append(findings, archiveFindings...)
+			}
 		}
 	}
 
@@ -184,30 +190,33 @@ func scanSingleFile(relPath, fullPath, commit string, rs *rules.RuleSet, opts Op
 	}
 	defer f.Close()
 
-	var findings []finding.Finding
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, maxLineSize), maxLineSize)
-
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
-
-		lineFindings := matchLine(line, lineNum, relPath, commit, rs, opts)
-		findings = append(findings, lineFindings...)
+	// Collect all lines for proximity checking.
+	var allLines []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, maxLineSize), maxLineSize)
+	for sc.Scan() {
+		allLines = append(allLines, sc.Text())
 	}
 
-	if err := scanner.Err(); err != nil {
+	if err := sc.Err(); err != nil {
 		if opts.Verbose {
 			fmt.Fprintf(opts.Stderr, "warning: scanner error in %s: %v\n", relPath, err)
 		}
+	}
+
+	var findings []finding.Finding
+	for lineIdx, line := range allLines {
+		lineNum := lineIdx + 1
+		lineFindings := matchLine(line, lineNum, relPath, commit, rs, opts, allLines, lineIdx)
+		findings = append(findings, lineFindings...)
 	}
 
 	return findings, nil
 }
 
 // matchLine checks a single line against all rules and returns any findings.
-func matchLine(line string, lineNum int, filePath, commit string, rs *rules.RuleSet, opts Options) []finding.Finding {
+// allLines and lineIdx are optional (can be nil/0) and used for proximity rule checking.
+func matchLine(line string, lineNum int, filePath, commit string, rs *rules.RuleSet, opts Options, allLines []string, lineIdx int) []finding.Finding {
 	if hasInlineAllow(line) {
 		return nil
 	}
@@ -225,6 +234,14 @@ func matchLine(line string, lineNum int, filePath, commit string, rs *rules.Rule
 		// Check global allowlists.
 		if isGlobalAllowed(rs.Allowlists, mr.Secret, mr.FullMatch, line, filePath, commit) {
 			continue
+		}
+
+		// Check proximity/composite rules.
+		if len(rule.Required) > 0 && allLines != nil {
+			matchCol := strings.Index(line, mr.FullMatch)
+			if !rule.CheckProximity(allLines, lineIdx, matchCol) {
+				continue
+			}
 		}
 
 		f := finding.Finding{

@@ -23,8 +23,9 @@ type Options struct {
 	ShowHelp       bool
 	ExitCode       int
 	MaxFileSizeMB  int
-	MaxDecodeDepth int
-	Stdin          bool
+	MaxDecodeDepth  int
+	MaxArchiveDepth int
+	Stdin           bool
 	Staged         bool
 	BaselinePath   string
 	EnableRules    []string
@@ -71,6 +72,7 @@ func Parse(args []string, w io.Writer) (Options, error) {
 	fs.IntVar(&opts.ExitCode, "exit-code", 1, "exit code when leaks are found")
 	fs.IntVar(&opts.MaxFileSizeMB, "max-file-size", 0, "skip files larger than this size in MB (0=no limit)")
 	fs.IntVar(&opts.MaxDecodeDepth, "max-decode-depth", 0, "recursive decode depth for base64/hex/percent (0=disabled)")
+	fs.IntVar(&opts.MaxArchiveDepth, "max-archive-depth", 0, "nested archive extraction depth (0=disabled)")
 	fs.BoolVar(&opts.Stdin, "stdin", false, "read input from stdin")
 	fs.BoolVar(&opts.Staged, "staged", false, "scan only staged changes (for pre-commit hooks)")
 	fs.StringVar(&opts.BaselinePath, "baseline", "", "path to baseline report to ignore known findings")

@@ -70,7 +70,7 @@ func scanStaged(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 				continue
 			}
 
-			lineFindings := matchLine(content, lineNum, filePath, "", rs, opts)
+			lineFindings := matchLine(content, lineNum, filePath, "", rs, opts, nil, 0)
 			findings = append(findings, lineFindings...)
 			lineNum++
 			continue

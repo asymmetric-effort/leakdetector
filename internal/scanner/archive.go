@@ -196,7 +196,7 @@ func scanArchiveReader(r io.Reader, filePath, commit string, rs *rules.RuleSet, 
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
-		lineFindings := matchLine(line, lineNum, filePath, commit, rs, opts)
+		lineFindings := matchLine(line, lineNum, filePath, commit, rs, opts, nil, 0)
 		findings = append(findings, lineFindings...)
 	}
 	return findings

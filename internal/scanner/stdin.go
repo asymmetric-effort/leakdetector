@@ -20,7 +20,7 @@ func scanStdin(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 		lineNum++
 		line := scanner.Text()
 
-		lineFindings := matchLine(line, lineNum, "stdin", "", rs, opts)
+		lineFindings := matchLine(line, lineNum, "stdin", "", rs, opts, nil, 0)
 		findings = append(findings, lineFindings...)
 	}
 

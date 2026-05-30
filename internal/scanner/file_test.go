@@ -405,7 +405,7 @@ func TestMatchLine_PopulatesFindingFields(t *testing.T) {
 	opts := Options{Stderr: &bytes.Buffer{}}
 
 	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 42, "config.env", "abc123", rs, opts)
+	findings := matchLine(line, 42, "config.env", "abc123", rs, opts, nil, 0)
 
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding")
@@ -462,7 +462,7 @@ func TestMatchLine_WithInlineAllow(t *testing.T) {
 	opts := Options{Stderr: &bytes.Buffer{}}
 
 	line := "AKIAIOSFODNN7EXAMPLE // leakdetector:allow"
-	findings := matchLine(line, 1, "test.txt", "", rs, opts)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings with inline allow, got %d", len(findings))
 	}
@@ -473,7 +473,7 @@ func TestMatchLine_NoMatch(t *testing.T) {
 	opts := Options{Stderr: &bytes.Buffer{}}
 
 	line := "this is a perfectly clean line with no secrets"
-	findings := matchLine(line, 1, "clean.txt", "", rs, opts)
+	findings := matchLine(line, 1, "clean.txt", "", rs, opts, nil, 0)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for clean line, got %d", len(findings))
 	}
@@ -505,7 +505,7 @@ func TestMatchLine_GlobalAllowlistSuppresses(t *testing.T) {
 
 	opts := Options{Stderr: &bytes.Buffer{}}
 	line := "AKIAIOSFODNN7EXAMPLE"
-	findings := matchLine(line, 1, "test.txt", "", rs, opts)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
 
 	// The global allowlist should suppress the finding for the test rule.
 	for _, f := range findings {
@@ -545,7 +545,7 @@ func TestMatchLine_DecoderFindsSecretsInEncoded(t *testing.T) {
 
 	opts := Options{Stderr: &bytes.Buffer{}}
 	line := "secret=QUtJQUlPU0ZPRE5ON0VYQU1QTEU="
-	findings := matchLine(line, 1, "test.txt", "", rs, opts)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
 
 	// The decoder should decode the base64 secret and find AKIAIOSFODNN7EXAMPLE,
 	// which matches test-aws-key. This adds "decoded:base64" tag.
@@ -994,7 +994,7 @@ func TestMatchLine_WithMaxDecodeDepth(t *testing.T) {
 	}
 
 	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 1, "test.txt", "", rs, opts)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
 
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding with MaxDecodeDepth > 0")
@@ -1038,7 +1038,7 @@ func TestMatchLine_WithPlatformGeneratesLink(t *testing.T) {
 
 	// commit="" means file scan (not git history), so generateFileLink is used
 	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 42, "config.env", "", rs, opts)
+	findings := matchLine(line, 42, "config.env", "", rs, opts, nil, 0)
 
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding")
@@ -1349,7 +1349,7 @@ func TestMatchLine_WithPlatformGitLab(t *testing.T) {
 	}
 
 	line := "my key is AKIAIOSFODNN7EXAMPLE here"
-	findings := matchLine(line, 42, "config.env", "", rs, opts)
+	findings := matchLine(line, 42, "config.env", "", rs, opts, nil, 0)
 
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding")
@@ -1399,7 +1399,7 @@ func TestMatchLine_WithDecodeDepthFindsDecodedSecrets(t *testing.T) {
 	}
 
 	line := "secret=QUtJQUlPU0ZPRE5ON0VYQU1QTEU="
-	findings := matchLine(line, 1, "test.txt", "", rs, opts)
+	findings := matchLine(line, 1, "test.txt", "", rs, opts, nil, 0)
 
 	// The decoder should find the base64-encoded AWS key and add a decoded tag.
 	for _, f := range findings {

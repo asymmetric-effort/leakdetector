@@ -16,6 +16,7 @@ type Options struct {
 	Staged         bool
 	MaxDecodeDepth int
 	FollowSymlinks bool
-	Timeout        int    // seconds, 0=no timeout
-	Platform       string // github, gitlab
+	Timeout         int    // seconds, 0=no timeout
+	Platform        string // github, gitlab
+	MaxArchiveDepth int    // nested archive extraction depth, 0=disabled
 }
