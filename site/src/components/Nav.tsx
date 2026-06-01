@@ -14,7 +14,7 @@ export function Nav() {
   return (
     <nav class="nav">
       <Link to="/" class="nav-brand">
-        <img src="/logo.png" alt="leakdetector logo" />
+        <img src="/logo.png" alt="leakdetector logo" width="28" height="28" />
         leakdetector
       </Link>
       <div class="nav-links">
