@@ -19,4 +19,5 @@ type Options struct {
 	Timeout         int    // seconds, 0=no timeout
 	Platform        string // github, gitlab
 	MaxArchiveDepth int    // nested archive extraction depth, 0=disabled
+	MaxFindings     int    // stop scanning after this many findings, 0=no limit
 }

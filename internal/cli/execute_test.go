@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -908,5 +910,65 @@ func TestExecuteExtendPathTraversalRejected(t *testing.T) {
 	code := execute(opts, dir, &stdout, &stderr)
 	if code != 2 {
 		t.Errorf("expected exit code 2 (traversal extend.path rejected), got %d", code)
+	}
+}
+
+func TestExecuteMaxFindings(t *testing.T) {
+	dir := t.TempDir()
+	// Create multiple files with secrets to generate many findings.
+	for i := 0; i < 5; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("secret%d.txt", i))
+		os.WriteFile(name, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		MaxFindings:  2,
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+
+	// Should exit with non-zero (exit code) because truncated.
+	if code != 1 {
+		t.Errorf("expected exit code 1 (truncated), got %d", code)
+	}
+
+	// Should have warning about truncation on stderr.
+	if !bytes.Contains(stderr.Bytes(), []byte("additional findings may exist")) {
+		t.Errorf("expected truncation warning in stderr, got: %s", stderr.String())
+	}
+
+	// Output should contain at most 2 findings.
+	var findings []map[string]interface{}
+	json.Unmarshal(stdout.Bytes(), &findings)
+	if len(findings) > 2 {
+		t.Errorf("expected at most 2 findings, got %d", len(findings))
+	}
+}
+
+func TestExecuteMaxFindingsZeroMeansNoLimit(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 3; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("secret%d.txt", i))
+		os.WriteFile(name, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		MaxFindings:  0, // no limit
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("expected exit code 1, got %d", code)
+	}
+
+	// Should NOT have truncation warning.
+	if bytes.Contains(stderr.Bytes(), []byte("additional findings may exist")) {
+		t.Error("unexpected truncation warning with MaxFindings=0")
 	}
 }

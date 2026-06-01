@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -118,6 +119,7 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 		MaxFileSizeMB:  opts.MaxFileSizeMB,
 		MaxDecodeDepth:  opts.MaxDecodeDepth,
 		MaxArchiveDepth: opts.MaxArchiveDepth,
+		MaxFindings:     opts.MaxFindings,
 		FollowSymlinks:  opts.FollowSymlinks,
 		Timeout:        opts.Timeout,
 		Platform:       opts.Platform,
@@ -130,8 +132,11 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 	ignoreFingerprints := finding.LoadIgnoreFile(ignorePath)
 
 	// Run scanner
+	truncated := false
 	findings, err := scanner.Scan(scanOpts, rs)
-	if err != nil {
+	if errors.Is(err, scanner.ErrMaxFindings) {
+		truncated = true
+	} else if err != nil {
 		fmt.Fprintf(stderr, "error: scan failed: %v\n", err)
 		return 2
 	}
@@ -172,8 +177,17 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if truncated {
+		fmt.Fprintf(stderr, "warning: scan stopped after %d findings (--max-findings %d); additional findings may exist\n",
+			len(findings), opts.MaxFindings)
+	}
+
 	if opts.Verbose {
 		fmt.Fprintf(stderr, "scan complete: %d findings\n", len(findings))
+	}
+
+	if truncated {
+		return opts.ExitCode
 	}
 
 	if len(findings) > 0 {

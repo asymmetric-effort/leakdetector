@@ -25,6 +25,7 @@ type Options struct {
 	MaxFileSizeMB  int
 	MaxDecodeDepth  int
 	MaxArchiveDepth int
+	MaxFindings     int
 	Stdin           bool
 	Staged         bool
 	BaselinePath   string
@@ -73,6 +74,7 @@ func Parse(args []string, w io.Writer) (Options, error) {
 	fs.IntVar(&opts.MaxFileSizeMB, "max-file-size", 0, "skip files larger than this size in MB (0=no limit)")
 	fs.IntVar(&opts.MaxDecodeDepth, "max-decode-depth", 0, "recursive decode depth for base64/hex/percent (0=disabled)")
 	fs.IntVar(&opts.MaxArchiveDepth, "max-archive-depth", 0, "nested archive extraction depth (0=disabled)")
+	fs.IntVar(&opts.MaxFindings, "max-findings", 0, "stop scanning after this many findings (0=no limit)")
 	fs.BoolVar(&opts.Stdin, "stdin", false, "read input from stdin")
 	fs.BoolVar(&opts.Staged, "staged", false, "scan only staged changes (for pre-commit hooks)")
 	fs.StringVar(&opts.BaselinePath, "baseline", "", "path to baseline report to ignore known findings")
