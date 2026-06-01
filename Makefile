@@ -93,5 +93,5 @@ _bump:
 	echo "$$NEW" > $(VERSION_FILE); \
 	git add $(VERSION_FILE); \
 	git commit -m "chore: bump version to v$$NEW"; \
-	git tag "v$$NEW"; \
+	git tag -a "v$$NEW" -m "v$$NEW"; \
 	echo "release: tagged v$$NEW"
