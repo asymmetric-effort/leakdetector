@@ -25,7 +25,6 @@ coverage.html
 # Site
 site/node_modules/
 site/dist/
-site/package-lock.json
 
 # Skills
 .claude/skills/
