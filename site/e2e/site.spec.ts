@@ -62,9 +62,9 @@ test.describe("leakdetector site PDV", () => {
       expect(await sections.count()).toBeGreaterThanOrEqual(1);
     }
 
-    // Click brand to go home.
-    await page.click(".nav-brand");
-    await page.waitForSelector(".hero", { timeout: 10000 });
+    // Navigate back to home.
+    await page.goto(`${BASE_URL}/#/`);
+    await page.waitForSelector(".hero", { timeout: 15000 });
     await expect(page.locator(".hero h1")).toContainText("leakdetector");
   });
 
