@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/asymmetric-effort/leakdetector/internal/finding"
@@ -207,7 +208,6 @@ func parseAuthor(raw string) (string, string) {
 // parseHunkLineNumber extracts the starting line number of the new file
 // from a unified diff hunk header like "@@ -a,b +c,d @@".
 func parseHunkLineNumber(hunk string) int {
-	// Find the +N part.
 	plusIdx := strings.Index(hunk, "+")
 	if plusIdx < 0 {
 		return 0
@@ -221,11 +221,11 @@ func parseHunkLineNumber(hunk string) int {
 	if end == 0 {
 		return 0
 	}
-	num := 0
-	for _, c := range rest[:end] {
-		num = num*10 + int(c-'0')
+	n, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return 0
 	}
-	return num
+	return n
 }
 
 // getRemoteURL runs git remote get-url origin and returns the result.
