@@ -117,8 +117,9 @@ type matchKey struct {
 }
 
 // scanBuffer scans a file buffer using sliding windows to detect secrets,
-// including those split across line boundaries.
-func scanBuffer(fb *fileBuffer, filePath, commit string, rs *rules.RuleSet, opts Options) []finding.Finding {
+// including those split across line boundaries. linkOwner/linkRepo are
+// pre-resolved remote URL components for platform link generation.
+func scanBuffer(fb *fileBuffer, filePath, commit string, rs *rules.RuleSet, opts Options, linkOwner, linkRepo string) []finding.Finding {
 	var findings []finding.Finding
 	seen := make(map[matchKey]struct{})
 
@@ -250,11 +251,8 @@ func scanBuffer(fb *fileBuffer, filePath, commit string, rs *rules.RuleSet, opts
 				}
 
 				// Generate platform link.
-				if opts.Platform != "" && commit == "" {
-					link := generateFileLink(opts, filePath, line)
-					if link != "" {
-						f.Link = link
-					}
+				if linkOwner != "" && linkRepo != "" {
+					f.Link = generateGitLink(opts.Platform, linkOwner, linkRepo, commit, filePath, line)
 				}
 
 				// Attempt decoding.

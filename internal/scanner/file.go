@@ -28,6 +28,15 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 
 	var findings []finding.Finding
 
+	// Resolve remote URL once for platform link generation.
+	var linkOwner, linkRepo string
+	if opts.Platform != "" {
+		remoteURL := getRemoteURL(opts.Dir)
+		if remoteURL != "" {
+			linkOwner, linkRepo = parseRemoteURL(remoteURL)
+		}
+	}
+
 	// Resolve the scan root so symlink boundary checks work correctly
 	// when opts.Dir is itself a symlink.
 	scanRoot := opts.Dir
@@ -140,7 +149,7 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 					}
 					continue
 				}
-				fileFindings, err := scanSingleFile(relPath, realPath, "", rs, opts)
+				fileFindings, err := scanSingleFile(relPath, realPath, "", rs, opts, linkOwner, linkRepo)
 				if err != nil {
 					if opts.Verbose {
 						fmt.Fprintf(opts.Stderr, "warning: error scanning %s: %v\n", relPath, err)
@@ -182,7 +191,7 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 				continue
 			}
 
-			fileFindings, err := scanSingleFile(relPath, fullPath, "", rs, opts)
+			fileFindings, err := scanSingleFile(relPath, fullPath, "", rs, opts, linkOwner, linkRepo)
 			if err != nil {
 				if opts.Verbose {
 					fmt.Fprintf(opts.Stderr, "warning: error scanning %s: %v\n", relPath, err)
@@ -204,14 +213,14 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 
 // scanSingleFile reads an entire file into a byte buffer and scans it using
 // a sliding window to detect secrets, including those split across lines.
-func scanSingleFile(relPath, fullPath, commit string, rs *rules.RuleSet, opts Options) ([]finding.Finding, error) {
+func scanSingleFile(relPath, fullPath, commit string, rs *rules.RuleSet, opts Options, linkOwner, linkRepo string) ([]finding.Finding, error) {
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return nil, err
 	}
 
 	fb := newFileBuffer(data)
-	findings := scanBuffer(fb, relPath, commit, rs, opts)
+	findings := scanBuffer(fb, relPath, commit, rs, opts, linkOwner, linkRepo)
 	return findings, nil
 }
 
@@ -272,26 +281,6 @@ func matchLine(line string, lineNum int, filePath, commit string, rs *rules.Rule
 	}
 
 	return findings
-}
-
-// generateFileLink creates a platform-specific link for file scan findings.
-func generateFileLink(opts Options, filePath string, lineNum int) string {
-	remoteURL := getRemoteURL(opts.Dir)
-	if remoteURL == "" {
-		return ""
-	}
-	owner, repo := parseRemoteURL(remoteURL)
-	if owner == "" || repo == "" {
-		return ""
-	}
-
-	switch strings.ToLower(opts.Platform) {
-	case "github":
-		return fmt.Sprintf("https://github.com/%s/%s/blob/HEAD/%s#L%d", owner, repo, filePath, lineNum)
-	case "gitlab":
-		return fmt.Sprintf("https://gitlab.com/%s/%s/-/blob/HEAD/%s#L%d", owner, repo, filePath, lineNum)
-	}
-	return ""
 }
 
 // copyTags returns a copy of the tags slice.

@@ -23,6 +23,7 @@ func scanStaged(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("git diff start: %w", err)
 	}
+	defer cmd.Wait()
 
 	var findings []finding.Finding
 

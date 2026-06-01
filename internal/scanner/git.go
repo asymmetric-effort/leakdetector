@@ -32,6 +32,7 @@ func scanGit(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.Fi
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("git start: %w", err)
 	}
+	defer cmd.Wait()
 
 	// Resolve remote URL and owner/repo for platform link generation.
 	var linkOwner, linkRepo string

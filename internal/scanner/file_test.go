@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -368,7 +367,7 @@ func TestScanSingleFile(t *testing.T) {
 	}
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings, err := scanSingleFile("single.txt", f, "", rs, opts)
+	findings, err := scanSingleFile("single.txt", f, "", rs, opts, "", "")
 	if err != nil {
 		t.Fatalf("scanSingleFile returned error: %v", err)
 	}
@@ -394,7 +393,7 @@ func TestScanSingleFile_NonExistent(t *testing.T) {
 	rs := testRuleSet(t)
 	opts := Options{Stderr: &bytes.Buffer{}}
 
-	_, err := scanSingleFile("nofile.txt", "/nonexistent/path/nofile.txt", "", rs, opts)
+	_, err := scanSingleFile("nofile.txt", "/nonexistent/path/nofile.txt", "", rs, opts, "", "")
 	if err == nil {
 		t.Error("expected error for non-existent file, got nil")
 	}
@@ -689,7 +688,7 @@ func TestScanSingleFile_ScannerError(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	_, err := scanSingleFile("longline.txt", f, "", rs, opts)
+	_, err := scanSingleFile("longline.txt", f, "", rs, opts, "", "")
 	if err != nil {
 		t.Fatalf("scanSingleFile returned error: %v", err)
 	}
@@ -1001,165 +1000,8 @@ func TestMatchLine_WithMaxDecodeDepth(t *testing.T) {
 	}
 }
 
-// Platform link generation is tested via scanBuffer tests in buffer_test.go.
-
-func TestGenerateFileLinkDirect(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/testowner/testrepo.git")
-	cmd.Dir = dir
-	cmd.Run()
-
-	opts := Options{Dir: dir, Platform: "github", Stderr: &bytes.Buffer{}}
-	link := generateFileLink(opts, "config.env", 42)
-	expected := "https://github.com/testowner/testrepo/blob/HEAD/config.env#L42"
-	if link != expected {
-		t.Errorf("expected %q, got %q", expected, link)
-	}
-}
-
-func TestGenerateFileLink_GitHub(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-
-	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/myorg/myrepo.git")
-	cmd.Dir = dir
-	cmd.Run()
-
-	opts := Options{
-		Dir:      dir,
-		Platform: "github",
-	}
-
-	link := generateFileLink(opts, "src/main.go", 10)
-	expected := "https://github.com/myorg/myrepo/blob/HEAD/src/main.go#L10"
-	if link != expected {
-		t.Errorf("generateFileLink github: got %q, want %q", link, expected)
-	}
-}
-
-func TestGenerateFileLink_GitLab(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-
-	cmd = exec.Command("git", "remote", "add", "origin", "https://gitlab.com/myorg/myrepo.git")
-	cmd.Dir = dir
-	cmd.Run()
-
-	opts := Options{
-		Dir:      dir,
-		Platform: "gitlab",
-	}
-
-	link := generateFileLink(opts, "src/main.go", 10)
-	expected := "https://gitlab.com/myorg/myrepo/-/blob/HEAD/src/main.go#L10"
-	if link != expected {
-		t.Errorf("generateFileLink gitlab: got %q, want %q", link, expected)
-	}
-}
-
-func TestGenerateFileLink_NoRemote(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-
-	opts := Options{
-		Dir:      dir,
-		Platform: "github",
-	}
-
-	link := generateFileLink(opts, "src/main.go", 10)
-	if link != "" {
-		t.Errorf("expected empty link with no remote, got %q", link)
-	}
-}
-
-func TestGenerateFileLink_UnknownPlatform(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-
-	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/myorg/myrepo.git")
-	cmd.Dir = dir
-	cmd.Run()
-
-	opts := Options{
-		Dir:      dir,
-		Platform: "bitbucket",
-	}
-
-	link := generateFileLink(opts, "src/main.go", 10)
-	if link != "" {
-		t.Errorf("expected empty link for unknown platform, got %q", link)
-	}
-}
-
-func TestGenerateFileLink_UnparseableRemoteURL(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-
-	// Set an unparseable remote URL
-	cmd = exec.Command("git", "remote", "add", "origin", "ftp://weird-url")
-	cmd.Dir = dir
-	cmd.Run()
-
-	opts := Options{
-		Dir:      dir,
-		Platform: "github",
-	}
-
-	link := generateFileLink(opts, "file.txt", 1)
-	if link != "" {
-		t.Errorf("expected empty link for unparseable remote URL, got %q", link)
-	}
-}
-
-func TestGenerateFileLink_NotAGitRepo(t *testing.T) {
-	dir := t.TempDir()
-	opts := Options{
-		Dir:      dir,
-		Platform: "github",
-	}
-
-	link := generateFileLink(opts, "file.txt", 1)
-	if link != "" {
-		t.Errorf("expected empty link for non-git dir, got %q", link)
-	}
-}
+// Platform link generation is tested via generateGitLink tests in git_test.go
+// and scanBuffer tests in buffer_test.go.
 
 func TestScanFiles_FollowSymlinks_SymlinkedFileExcluded(t *testing.T) {
 	dir := t.TempDir()
