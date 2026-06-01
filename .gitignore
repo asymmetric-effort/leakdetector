@@ -22,8 +22,12 @@ coverage.html
 # leakdetector
 .leakdetector.yml
 
+# Site
+site/node_modules/
+site/dist/
+site/package-lock.json
+
 # Skills
 .claude/skills/
 cli_cover.out
-logo.png
 scanner_cover.out
