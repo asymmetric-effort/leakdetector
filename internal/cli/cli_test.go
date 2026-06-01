@@ -467,3 +467,86 @@ func TestParseCombinedFlags(t *testing.T) {
 		t.Error("expected Verbose true")
 	}
 }
+
+func TestParseValidation_Redact(t *testing.T) {
+	var buf bytes.Buffer
+	_, err := Parse([]string{"--redact", "-1"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "--redact must be between") {
+		t.Errorf("expected redact range error, got: %v", err)
+	}
+
+	_, err = Parse([]string{"--redact", "101"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "--redact must be between") {
+		t.Errorf("expected redact range error, got: %v", err)
+	}
+
+	// Valid values should pass.
+	_, err = Parse([]string{"--redact", "0"}, &buf)
+	if err != nil {
+		t.Errorf("redact 0 should be valid: %v", err)
+	}
+	_, err = Parse([]string{"--redact", "100"}, &buf)
+	if err != nil {
+		t.Errorf("redact 100 should be valid: %v", err)
+	}
+}
+
+func TestParseValidation_Format(t *testing.T) {
+	var buf bytes.Buffer
+	_, err := Parse([]string{"--format", "jsson"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "--format must be one of") {
+		t.Errorf("expected format error, got: %v", err)
+	}
+
+	for _, f := range []string{"json", "csv", "junit", "sarif", "template"} {
+		_, err := Parse([]string{"--format", f}, &buf)
+		if err != nil {
+			t.Errorf("format %q should be valid: %v", f, err)
+		}
+	}
+}
+
+func TestParseValidation_Platform(t *testing.T) {
+	var buf bytes.Buffer
+	_, err := Parse([]string{"--platform", "bitbucket"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "--platform must be") {
+		t.Errorf("expected platform error, got: %v", err)
+	}
+
+	_, err = Parse([]string{"--platform", "github"}, &buf)
+	if err != nil {
+		t.Errorf("platform github should be valid: %v", err)
+	}
+	_, err = Parse([]string{"--platform", "gitlab"}, &buf)
+	if err != nil {
+		t.Errorf("platform gitlab should be valid: %v", err)
+	}
+
+	// Empty platform (not specified) is valid.
+	_, err = Parse([]string{}, &buf)
+	if err != nil {
+		t.Errorf("no platform should be valid: %v", err)
+	}
+}
+
+func TestParseValidation_ExitCode(t *testing.T) {
+	var buf bytes.Buffer
+	_, err := Parse([]string{"--exit-code", "-1"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "--exit-code must be between") {
+		t.Errorf("expected exit-code range error, got: %v", err)
+	}
+
+	_, err = Parse([]string{"--exit-code", "256"}, &buf)
+	if err == nil || !strings.Contains(err.Error(), "--exit-code must be between") {
+		t.Errorf("expected exit-code range error, got: %v", err)
+	}
+
+	_, err = Parse([]string{"--exit-code", "0"}, &buf)
+	if err != nil {
+		t.Errorf("exit-code 0 should be valid: %v", err)
+	}
+	_, err = Parse([]string{"--exit-code", "255"}, &buf)
+	if err != nil {
+		t.Errorf("exit-code 255 should be valid: %v", err)
+	}
+}

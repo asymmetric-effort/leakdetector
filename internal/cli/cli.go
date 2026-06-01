@@ -112,6 +112,32 @@ func Parse(args []string, w io.Writer) (Options, error) {
 		}
 	}
 
+	// Validate --redact range.
+	if opts.RedactPercent < 0 || opts.RedactPercent > 100 {
+		return opts, fmt.Errorf("--redact must be between 0 and 100, got %d", opts.RedactPercent)
+	}
+
+	// Validate --format.
+	validFormats := map[string]bool{
+		"json": true, "csv": true, "junit": true, "sarif": true, "template": true,
+	}
+	if !validFormats[opts.ReportFormat] {
+		return opts, fmt.Errorf("--format must be one of: json, csv, junit, sarif, template — got %q", opts.ReportFormat)
+	}
+
+	// Validate --platform.
+	if opts.Platform != "" {
+		validPlatforms := map[string]bool{"github": true, "gitlab": true}
+		if !validPlatforms[strings.ToLower(opts.Platform)] {
+			return opts, fmt.Errorf("--platform must be 'github' or 'gitlab', got %q", opts.Platform)
+		}
+	}
+
+	// Validate --exit-code.
+	if opts.ExitCode < 0 || opts.ExitCode > 255 {
+		return opts, fmt.Errorf("--exit-code must be between 0 and 255, got %d", opts.ExitCode)
+	}
+
 	return opts, nil
 }
 
