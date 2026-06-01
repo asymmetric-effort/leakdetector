@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/asymmetric-effort/leakdetector/internal/safefile"
 )
 
 // Finding represents a single detected secret or sensitive information.
@@ -82,6 +84,13 @@ func (f *Finding) RedactPercent(pct int) {
 // per line. Lines starting with # are comments and blank lines are ignored.
 // Returns nil if the file does not exist.
 func LoadIgnoreFile(path string) []string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	if info.Size() > safefile.MaxFileSize {
+		return nil
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil
@@ -120,7 +129,7 @@ func FilterFingerprints(findings []Finding, fingerprints []string) []Finding {
 
 // LoadBaseline reads a JSON baseline file and returns the findings.
 func LoadBaseline(path string) ([]Finding, error) {
-	data, err := os.ReadFile(path)
+	data, err := safefile.Read(path)
 	if err != nil {
 		return nil, fmt.Errorf("read baseline: %w", err)
 	}

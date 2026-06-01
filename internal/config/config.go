@@ -1,7 +1,7 @@
 package config
 
 import (
-	"os"
+	"github.com/asymmetric-effort/leakdetector/internal/safefile"
 )
 
 // Config represents the .leakdetector.yml configuration.
@@ -64,7 +64,7 @@ func Default() *Config {
 
 // Load reads and parses a configuration file at the given path.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := safefile.Read(path)
 	if err != nil {
 		return nil, err
 	}

@@ -3,10 +3,10 @@ package output
 import (
 	"fmt"
 	"io"
-	"os"
 	"text/template"
 
 	"github.com/asymmetric-effort/leakdetector/internal/finding"
+	"github.com/asymmetric-effort/leakdetector/internal/safefile"
 )
 
 // writeTemplate loads a Go text/template from templatePath and executes it
@@ -16,7 +16,7 @@ func writeTemplate(w io.Writer, findings []finding.Finding, templatePath string)
 		return fmt.Errorf("template path is required for template format")
 	}
 
-	data, err := os.ReadFile(templatePath)
+	data, err := safefile.Read(templatePath)
 	if err != nil {
 		return fmt.Errorf("read template file: %w", err)
 	}
