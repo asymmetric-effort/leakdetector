@@ -333,3 +333,37 @@ func TestValidateExcludePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateExcludeCommits(t *testing.T) {
+	tests := []struct {
+		name    string
+		commits []string
+		wantErr bool
+	}{
+		{"valid full hash", []string{"abc1234def5678901234567890123456789012ab"}, false},
+		{"valid short hash 7 chars", []string{"abc1234"}, false},
+		{"too short 6 chars", []string{"abc123"}, true},
+		{"too short 1 char", []string{"a"}, true},
+		{"empty list", []string{}, false},
+		{"nil list", nil, false},
+		{"non-hex chars", []string{"abc123g"}, true},
+		{"uppercase hex", []string{"ABC1234"}, false},
+		{"mixed valid and invalid", []string{"abc1234", "xy"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateExcludeCommits(tc.commits)
+			if tc.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tc.wantErr && err != nil {
+				if !strings.Contains(err.Error(), "exclude_commits") {
+					t.Errorf("error should mention exclude_commits, got: %v", err)
+				}
+			}
+		})
+	}
+}

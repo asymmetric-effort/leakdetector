@@ -112,6 +112,10 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
+	if err := scanner.ValidateExcludeCommits(cfg.ExcludeCommits); err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
+	}
 
 	// Build scanner options
 	scanOpts := scanner.Options{

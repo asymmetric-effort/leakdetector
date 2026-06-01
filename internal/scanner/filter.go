@@ -41,13 +41,32 @@ func isExcludedPath(relPath string, excludePaths []string) bool {
 	return false
 }
 
+const minCommitHashLen = 7
+
+// ValidateExcludeCommits checks that all exclude commit hashes are at least
+// 7 characters long (git's minimum short hash length) and contain only
+// valid hex characters.
+func ValidateExcludeCommits(commits []string) error {
+	for _, c := range commits {
+		if len(c) < minCommitHashLen {
+			return fmt.Errorf("invalid exclude_commits entry %q: must be at least %d characters (got %d)", c, minCommitHashLen, len(c))
+		}
+		for _, ch := range c {
+			if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+				return fmt.Errorf("invalid exclude_commits entry %q: contains non-hex character %q", c, ch)
+			}
+		}
+	}
+	return nil
+}
+
 // isExcludedCommit returns true if the given commit SHA should be skipped.
 func isExcludedCommit(commit string, excludeCommits []string) bool {
 	for _, exc := range excludeCommits {
 		if commit == exc {
 			return true
 		}
-		// Allow short-hash matching.
+		// Allow short-hash prefix matching (minimum 7 chars enforced by validation).
 		if len(commit) >= len(exc) && strings.HasPrefix(commit, exc) {
 			return true
 		}
