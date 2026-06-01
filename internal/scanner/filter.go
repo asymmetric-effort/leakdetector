@@ -1,14 +1,28 @@
 package scanner
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/asymmetric-effort/leakdetector/internal/rules"
 )
 
+// ValidateExcludePaths checks that all exclude path patterns are valid globs.
+// Returns a human-readable error describing the first invalid pattern found.
+func ValidateExcludePaths(patterns []string) error {
+	for _, pattern := range patterns {
+		_, err := filepath.Match(pattern, "test")
+		if err != nil {
+			return fmt.Errorf("invalid exclude_paths pattern %q: %w", pattern, err)
+		}
+	}
+	return nil
+}
+
 // isExcludedPath returns true if the given path should be skipped based on
 // the exclude patterns. Patterns are matched as glob-style or as a prefix.
+// Patterns must be validated with ValidateExcludePaths before calling this.
 func isExcludedPath(relPath string, excludePaths []string) bool {
 	for _, pattern := range excludePaths {
 		// Try glob match first.

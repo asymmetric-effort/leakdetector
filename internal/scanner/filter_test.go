@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/asymmetric-effort/leakdetector/internal/rules"
@@ -295,6 +296,39 @@ func TestIsGlobalAllowed(t *testing.T) {
 			got := isGlobalAllowed(tt.allowlists, tt.secret, tt.match, tt.line, tt.filePath, tt.commit)
 			if got != tt.want {
 				t.Errorf("isGlobalAllowed() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateExcludePaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		patterns []string
+		wantErr  bool
+	}{
+		{"valid globs", []string{"*.go", "vendor/", "test_*"}, false},
+		{"empty list", []string{}, false},
+		{"nil list", nil, false},
+		{"plain prefix", []string{"src/"}, false},
+		{"unclosed bracket", []string{"[abc"}, true},
+		{"valid bracket", []string{"[abc]"}, false},
+		{"mixed valid and invalid", []string{"*.go", "[bad"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateExcludePaths(tc.patterns)
+			if tc.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tc.wantErr && err != nil {
+				// Error should be human-readable with the bad pattern.
+				if !strings.Contains(err.Error(), tc.patterns[len(tc.patterns)-1]) {
+					t.Errorf("error should contain the bad pattern, got: %v", err)
+				}
 			}
 		})
 	}

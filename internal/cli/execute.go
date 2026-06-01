@@ -107,6 +107,12 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// Validate exclude path patterns.
+	if err := scanner.ValidateExcludePaths(cfg.ExcludePaths); err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
+	}
+
 	// Build scanner options
 	scanOpts := scanner.Options{
 		Dir:            dir,
