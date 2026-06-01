@@ -136,6 +136,8 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 					}
 					if len(stack) < maxQueueSize {
 						stack = append(stack, realPath)
+					} else if opts.Verbose {
+						fmt.Fprintf(opts.Stderr, "warning: directory queue full (%d), skipping %s\n", maxQueueSize, relPath)
 					}
 					continue
 				}
@@ -170,6 +172,8 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 				}
 				if len(stack) < maxQueueSize {
 					stack = append(stack, fullPath)
+				} else if opts.Verbose {
+					fmt.Fprintf(opts.Stderr, "warning: directory queue full (%d), skipping %s\n", maxQueueSize, relPath)
 				}
 				continue
 			}
