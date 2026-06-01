@@ -9,6 +9,11 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
+  esbuild: {
+    jsxFactory: "createElement",
+    jsxFragment: "Fragment",
+    jsxImportSource: "@asymmetric-effort/specifyjs",
+  },
   build: {
     outDir: "dist",
   },
