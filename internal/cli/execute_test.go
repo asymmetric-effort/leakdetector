@@ -948,6 +948,123 @@ func TestExecuteMaxFindings(t *testing.T) {
 	}
 }
 
+func TestExecuteValidateExcludePathsError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a config with an invalid glob pattern in exclude_paths.
+	configContent := `exclude_paths:
+  - "[invalid"
+`
+	configPath := filepath.Join(dir, "bad-exclude.yml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ConfigPath:   configPath,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (invalid exclude_paths), got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "invalid exclude_paths") {
+		t.Errorf("expected 'invalid exclude_paths' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestExecuteValidateExcludeCommitsError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a config with a too-short exclude_commits entry.
+	configContent := `exclude_commits:
+  - "abc"
+`
+	configPath := filepath.Join(dir, "bad-commits.yml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ConfigPath:   configPath,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (invalid exclude_commits), got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "invalid exclude_commits") {
+		t.Errorf("expected 'invalid exclude_commits' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestExecuteConfigWarnings(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a config with an unknown key to trigger a warning.
+	configContent := `unknown_key: value
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "clean.txt"), []byte("clean\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 0 {
+		t.Errorf("expected exit code 0, got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "config warning") {
+		t.Errorf("expected 'config warning' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestExecuteExtendPathRelativeDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a subdirectory to use as the extend path.
+	// config.Load on a directory returns a non-IsNotExist error.
+	extDir := filepath.Join(dir, "ext-dir")
+	if err := os.Mkdir(extDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mainConfig := `extend:
+  use_default: true
+  path: ext-dir
+`
+	if err := os.WriteFile(filepath.Join(dir, ".leakdetector.yml"), []byte(mainConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	opts := Options{
+		SkipHistory:  true,
+		ReportFormat: "json",
+		ExitCode:     1,
+	}
+	code := execute(opts, dir, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("expected exit code 2 (extend config load error), got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "failed to load extended config") {
+		t.Errorf("expected 'failed to load extended config' in stderr, got: %s", stderr.String())
+	}
+}
+
 func TestExecuteMaxFindingsZeroMeansNoLimit(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 3; i++ {

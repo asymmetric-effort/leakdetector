@@ -97,6 +97,11 @@ func TestParseHunkLineNumber(t *testing.T) {
 			hunk: "@@ -1,2 +abc @@",
 			want: 0,
 		},
+		{
+			name: "overflow number",
+			hunk: "@@ -1,2 +99999999999999999999 @@",
+			want: 0,
+		},
 	}
 
 	for _, tt := range tests {

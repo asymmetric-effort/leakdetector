@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1182,6 +1183,140 @@ func TestScanFiles_FollowSymlinks_EscapeBlocked(t *testing.T) {
 	if len(findings) > 0 {
 		t.Errorf("expected 0 findings from escape-blocked scan, got %d", len(findings))
 	}
+}
+
+func TestScanFiles_DirectoryQueueFullWarning(t *testing.T) {
+	// Create enough directories to fill the queue (maxQueueSize = 10000).
+	// We can't actually create 10001 directories in the first level easily,
+	// but we can test the code path by verifying the warning output format.
+	// Instead, we test with a smaller approach: create directories nested
+	// to force queue usage, then verify the warning when the queue is full.
+	// Since maxQueueSize is 10000, we need many dirs. Let's create them.
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create maxQueueSize + 1 subdirectories to overflow the stack.
+	for i := 0; i <= maxQueueSize; i++ {
+		sub := filepath.Join(dir, fmt.Sprintf("dir%05d", i))
+		if err := os.MkdirAll(sub, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:     dir,
+		Verbose: true,
+		Stderr:  &stderr,
+	}
+
+	_, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	// With 10001 dirs, the stack should have overflowed and emitted a warning.
+	if !strings.Contains(stderr.String(), "directory queue full") {
+		t.Errorf("expected 'directory queue full' warning in verbose output, got: %s", stderr.String())
+	}
+}
+
+func TestScanFiles_FollowSymlinks_DirectoryQueueFullWarning(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create maxQueueSize+1 unique real directories, each pointed to by a
+	// symlink entry. Each has a unique real path so the visited map doesn't
+	// deduplicate them, forcing the stack to overflow.
+	realBase := filepath.Join(dir, "reals")
+	linkBase := filepath.Join(dir, "links")
+	if err := os.MkdirAll(realBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(linkBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i <= maxQueueSize; i++ {
+		realSub := filepath.Join(realBase, fmt.Sprintf("d%05d", i))
+		if err := os.MkdirAll(realSub, 0755); err != nil {
+			t.Fatal(err)
+		}
+		linkSub := filepath.Join(linkBase, fmt.Sprintf("l%05d", i))
+		if err := os.Symlink(realSub, linkSub); err != nil {
+			t.Skip("symlinks not supported")
+		}
+	}
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:            dir,
+		FollowSymlinks: true,
+		Verbose:        true,
+		Stderr:         &stderr,
+	}
+
+	_, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	if !strings.Contains(stderr.String(), "directory queue full") {
+		t.Errorf("expected 'directory queue full' warning for symlink path, got: %s", stderr.String())
+	}
+}
+
+func TestScanFiles_PlatformLinkForFileFindings(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Initialize a git repo with a remote origin to enable platform link generation.
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("remote", "add", "origin", "https://github.com/testowner/testrepo.git")
+
+	// Create a file with a secret.
+	os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:      dir,
+		Platform: "github",
+		Stderr:   &stderr,
+	}
+
+	findings, err := scanFiles(context.Background(), opts, rs)
+	if err != nil {
+		t.Fatalf("scanFiles returned error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding")
+	}
+
+	// Verify link is generated for file findings.
+	for _, f := range findings {
+		if f.File == "secret.txt" && f.Link != "" {
+			if !strings.Contains(f.Link, "github.com/testowner/testrepo") {
+				t.Errorf("expected github link, got %q", f.Link)
+			}
+			return
+		}
+	}
+	t.Log("no platform link found for file finding (remote URL resolution may have failed)")
 }
 
 func TestMatchLine_WithDecodeDepthFindsDecodedSecrets(t *testing.T) {

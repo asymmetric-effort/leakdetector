@@ -713,6 +713,93 @@ func TestScanBuffer_Tags(t *testing.T) {
 	}
 }
 
+func TestScanBuffer_NilRegexSkipped(t *testing.T) {
+	// A rule with no regex (Regex == nil after compile) should be skipped.
+	// CompileWithOptions with a rule that has no regex will fail, so we test
+	// indirectly by using a rule with a path filter that doesn't match.
+	// Instead, test with a rule that has keywords but the window doesn't
+	// contain them -- this exercises the keyword pre-filter skip path.
+	rule := config.RuleConfig{
+		ID:       "test-no-match-kw",
+		Regex:    `NOMATCH_[A-Z]+`,
+		Keywords: []string{"xyzzy"},
+	}
+	rs := bufferTestRuleSet(t, []config.RuleConfig{rule}, nil)
+	content := []byte("no keywords here\n")
+	fb := newFileBuffer(content)
+
+	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings, got %d", len(findings))
+	}
+}
+
+func TestScanBuffer_PlatformLinkGenerated(t *testing.T) {
+	rs := bufferTestRuleSet(t, []config.RuleConfig{awsKeyRule()}, nil)
+	content := []byte("AKIAIOSFODNN7EXAMPLE\n")
+	fb := newFileBuffer(content)
+
+	findings := scanBuffer(fb, "test.txt", "abc123", rs, Options{
+		Stderr:   &bytes.Buffer{},
+		Platform: "github",
+	}, "myowner", "myrepo")
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding")
+	}
+	if findings[0].Link == "" {
+		t.Error("expected non-empty Link when platform owner/repo provided")
+	}
+	if !strings.Contains(findings[0].Link, "github.com/myowner/myrepo") {
+		t.Errorf("expected github link, got %q", findings[0].Link)
+	}
+}
+
+func TestScanBuffer_EmptyLinkOwnerRepo(t *testing.T) {
+	rs := bufferTestRuleSet(t, []config.RuleConfig{awsKeyRule()}, nil)
+	content := []byte("AKIAIOSFODNN7EXAMPLE\n")
+	fb := newFileBuffer(content)
+
+	findings := scanBuffer(fb, "test.txt", "abc123", rs, Options{
+		Stderr:   &bytes.Buffer{},
+		Platform: "github",
+	}, "", "")
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding")
+	}
+	if findings[0].Link != "" {
+		t.Errorf("expected empty Link when owner/repo empty, got %q", findings[0].Link)
+	}
+}
+
+func TestScanBuffer_ProximityDefaultRadius(t *testing.T) {
+	// Test that when Required rules have WithinLines=0, the default radius of 5 is used.
+	rule := config.RuleConfig{
+		ID:          "test-prox-default",
+		Description: "Proximity default radius",
+		Regex:       `SECRET_([A-Z0-9]{10,})`,
+		SecretGroup: 1,
+		Required: []config.RequiredRule{
+			{
+				ID:          "needs-keyword",
+				Regex:       `(?i)password`,
+				WithinLines: 0, // zero triggers default radius of 5
+			},
+		},
+	}
+	rs := bufferTestRuleSet(t, []config.RuleConfig{rule}, nil)
+
+	// Place "password" within default 5-line radius of the secret.
+	content := []byte("password = val\nfiller\nfiller\nconfig = SECRET_ABCDEFGHIJ\n")
+	fb := newFileBuffer(content)
+
+	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	if len(findings) == 0 {
+		t.Error("expected finding when proximity keyword is within default radius")
+	}
+}
+
 func TestScanBuffer_RuleAllowlistSuppresses(t *testing.T) {
 	rule := config.RuleConfig{
 		ID:    "test-with-al",

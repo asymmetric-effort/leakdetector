@@ -2,11 +2,13 @@ package scanner
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/asymmetric-effort/leakdetector/internal/config"
@@ -477,6 +479,203 @@ func TestScan_VeryShortTimeout_FileScanError(t *testing.T) {
 	// We're just exercising the timeout code path.
 	if err != nil {
 		t.Logf("Scan returned error (timeout expected): %v", err)
+	}
+}
+
+func TestScan_MaxFindingsTruncatesFileFindings(t *testing.T) {
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// Create multiple files each with a secret to generate many findings.
+	for i := 0; i < 5; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("secret%d.txt", i))
+		os.WriteFile(name, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+	}
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:         dir,
+		SkipHistory: true,
+		MaxFindings: 2,
+		Stderr:      &stderr,
+	}
+
+	findings, err := Scan(opts, rs)
+	if !errors.Is(err, ErrMaxFindings) {
+		t.Fatalf("expected ErrMaxFindings, got %v", err)
+	}
+	if len(findings) != 2 {
+		t.Errorf("expected exactly 2 findings, got %d", len(findings))
+	}
+}
+
+func TestScan_MaxFindingsTruncatesAfterGitHistory(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+
+	// Use a controlled ruleset to get predictable finding counts.
+	rs, err := rules.CompileWithOptions(
+		[]config.RuleConfig{
+			{
+				ID:          "test-aws-key",
+				Description: "Test AWS Access Key",
+				Regex:       `\b(AKIA[0-9A-Z]{16})\b`,
+				SecretGroup: 1,
+				Keywords:    []string{"AKIA"},
+			},
+		},
+		nil,
+		rules.CompileOptions{UseDefault: false},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// Commit 2 files with secrets. File scan finds 2 findings.
+	// Git history scan finds 2 more. With MaxFindings=3, the
+	// git history MaxFindings check should trigger.
+	os.WriteFile(filepath.Join(dir, "s0.txt"), []byte("AKIAIOSFODNN7AAAAAAA\n"), 0644)
+	runGit("add", "s0.txt")
+	os.WriteFile(filepath.Join(dir, "s1.txt"), []byte("AKIAIOSFODNN7BBBBBBB\n"), 0644)
+	runGit("add", "s1.txt")
+	runGit("commit", "-m", "add secrets")
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:         dir,
+		MaxFindings: 3,
+		Stderr:      &stderr,
+	}
+
+	findings, scanErr := Scan(opts, rs)
+	if !errors.Is(scanErr, ErrMaxFindings) {
+		t.Fatalf("expected ErrMaxFindings, got %v (findings=%d)", scanErr, len(findings))
+	}
+	if len(findings) != 3 {
+		t.Errorf("expected exactly 3 findings, got %d", len(findings))
+	}
+}
+
+func TestScan_MaxFindingsTruncatesAfterStagedScan(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+
+	// Use a controlled ruleset with only one rule and no built-in rules
+	// so we get exactly 1 finding per file.
+	rs, err := rules.CompileWithOptions(
+		[]config.RuleConfig{
+			{
+				ID:          "test-aws-key",
+				Description: "Test AWS Access Key",
+				Regex:       `\b(AKIA[0-9A-Z]{16})\b`,
+				SecretGroup: 1,
+				Keywords:    []string{"AKIA"},
+			},
+		},
+		nil,
+		rules.CompileOptions{UseDefault: false},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// Initial commit with a clean file.
+	os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init\n"), 0644)
+	runGit("add", "init.txt")
+	runGit("commit", "-m", "initial")
+
+	// Create 2 files with secrets (file scan finds 2 findings).
+	// Staged scan will also find these in git diff --cached (2 more findings).
+	// With MaxFindings=3, file scan produces 2 (under limit), then
+	// staged scan adds 2 more to reach 4, which exceeds MaxFindings=3.
+	os.WriteFile(filepath.Join(dir, "file0.txt"), []byte("AKIAIOSFODNN7AAAAAAA\n"), 0644)
+	runGit("add", "file0.txt")
+	os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("AKIAIOSFODNN7BBBBBBB\n"), 0644)
+	runGit("add", "file1.txt")
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:         dir,
+		Staged:      true,
+		MaxFindings: 3,
+		Stderr:      &stderr,
+	}
+
+	findings, scanErr := Scan(opts, rs)
+	if !errors.Is(scanErr, ErrMaxFindings) {
+		t.Fatalf("expected ErrMaxFindings, got %v (findings=%d)", scanErr, len(findings))
+	}
+	if len(findings) != 3 {
+		t.Errorf("expected exactly 3 findings, got %d", len(findings))
+	}
+}
+
+func TestScan_StagedScanError(t *testing.T) {
+	// Test that a staged scan error is returned properly.
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	// No .git directory -- scanStaged will fail.
+	os.WriteFile(filepath.Join(dir, "clean.txt"), []byte("clean\n"), 0644)
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:    dir,
+		Staged: true,
+		Stderr: &stderr,
+	}
+
+	_, err := Scan(opts, rs)
+	if err == nil {
+		t.Log("Scan with Staged in non-git dir did not return error")
+	} else if !strings.Contains(err.Error(), "staged scan") {
+		t.Errorf("expected 'staged scan' error, got: %v", err)
 	}
 }
 

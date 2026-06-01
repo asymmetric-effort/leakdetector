@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -775,6 +776,66 @@ func TestParseExtendEmptyWithComments(t *testing.T) {
 	}
 	if cfg.Extend == nil {
 		t.Fatal("extend is nil")
+	}
+}
+
+func TestParseStringListNonListItemWarning(t *testing.T) {
+	// Test that parseStringList emits a warning for non-list items.
+	data := `exclude_commits:
+  notalist
+  - valid_item
+`
+	cfg, err := parse([]byte(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(cfg.Warnings) == 0 {
+		t.Error("expected warning for non-list item in parseStringList")
+	}
+	foundWarning := false
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "expected list item starting with '- '") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected list item warning, got warnings: %v", cfg.Warnings)
+	}
+	// The valid item should still be parsed.
+	if len(cfg.ExcludeCommits) != 1 || cfg.ExcludeCommits[0] != "valid_item" {
+		t.Errorf("expected [valid_item], got %v", cfg.ExcludeCommits)
+	}
+}
+
+func TestParseStringList2NonListItemWarning(t *testing.T) {
+	// Test that parseStringList2 emits a warning for non-list items.
+	// parseStringList2 is called when a block-style list is used for keywords/tags
+	// in rules.
+	data := `rules:
+  - id: r1
+    regex: ".*"
+    keywords:
+      notalist
+      - valid_kw
+`
+	cfg, err := parse([]byte(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(cfg.Warnings) == 0 {
+		t.Error("expected warning for non-list item in parseStringList2")
+	}
+	foundWarning := false
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "expected list item starting with '- '") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected list item warning, got warnings: %v", cfg.Warnings)
+	}
+	if len(cfg.Rules[0].Keywords) != 1 || cfg.Rules[0].Keywords[0] != "valid_kw" {
+		t.Errorf("expected [valid_kw], got %v", cfg.Rules[0].Keywords)
 	}
 }
 

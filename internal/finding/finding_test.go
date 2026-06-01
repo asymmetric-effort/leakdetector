@@ -372,6 +372,24 @@ func TestLoadIgnoreFile(t *testing.T) {
 			t.Errorf("expected nil for empty file, got %v", fps)
 		}
 	})
+
+	t.Run("unreadable file returns nil", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".leakdetectorignore")
+		if err := os.WriteFile(path, []byte("fp1\nfp2\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		// Make unreadable -- os.Stat succeeds but os.Open fails.
+		if err := os.Chmod(path, 0000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(path, 0644) })
+
+		fps := LoadIgnoreFile(path)
+		if fps != nil {
+			t.Errorf("expected nil for unreadable file, got %v", fps)
+		}
+	})
 }
 
 func TestFilterFingerprints(t *testing.T) {
