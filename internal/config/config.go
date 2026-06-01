@@ -5,12 +5,14 @@ import (
 )
 
 // Config represents the .leakdetector.yml configuration.
+// Config represents the .leakdetector.yml configuration.
 type Config struct {
 	ExcludeCommits []string       `yaml:"exclude_commits"`
 	ExcludePaths   []string       `yaml:"exclude_paths"`
 	Rules          []RuleConfig   `yaml:"rules"`
 	Allowlists     []Allowlist    `yaml:"allowlists"`
 	Extend         *ExtendConfig  `yaml:"extend"`
+	Warnings       []string       `yaml:"-"` // parse warnings (not serialized)
 }
 
 // RuleConfig defines a single detection rule in the config file.

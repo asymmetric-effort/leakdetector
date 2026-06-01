@@ -40,6 +40,13 @@ func execute(opts Options, dir string, stdout, stderr io.Writer) int {
 		cfg = config.Default()
 	}
 
+	// Print config warnings.
+	if len(cfg.Warnings) > 0 {
+		for _, w := range cfg.Warnings {
+			fmt.Fprintf(stderr, "config warning: %s\n", w)
+		}
+	}
+
 	// Load extended config if specified.
 	if cfg.Extend != nil && cfg.Extend.Path != "" {
 		extPath := cfg.Extend.Path

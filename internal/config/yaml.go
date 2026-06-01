@@ -1,24 +1,69 @@
 package config
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
 
 // parse parses YAML data into a Config struct.
-// This is a minimal YAML parser that handles the subset of YAML used by
-// .leakdetector.yml configuration files. It avoids third-party dependencies.
+// Returns an error if the configuration contains invalid syntax or values.
 func parse(data []byte) (*Config, error) {
 	cfg := &Config{}
 	lines := strings.Split(string(data), "\n")
 	p := &parser{lines: lines, pos: 0}
 	p.parseConfig(cfg)
+	if len(p.errors) > 0 {
+		return nil, fmt.Errorf("configuration errors:\n  %s", strings.Join(p.errors, "\n  "))
+	}
+	if len(p.warnings) > 0 {
+		cfg.Warnings = p.warnings
+	}
 	return cfg, nil
 }
 
 type parser struct {
-	lines []string
-	pos   int
+	lines    []string
+	pos      int
+	errors   []string
+	warnings []string
+}
+
+// errorf records a hard error that will cause parse to fail.
+func (p *parser) errorf(format string, args ...interface{}) {
+	msg := fmt.Sprintf("line %d: %s", p.pos+1, fmt.Sprintf(format, args...))
+	p.errors = append(p.errors, msg)
+}
+
+// warnf records a warning that does not cause parse to fail.
+func (p *parser) warnf(format string, args ...interface{}) {
+	msg := fmt.Sprintf("line %d: %s", p.pos+1, fmt.Sprintf(format, args...))
+	p.warnings = append(p.warnings, msg)
+}
+
+var validTopLevelKeys = map[string]bool{
+	"exclude_commits": true,
+	"exclude_paths":   true,
+	"rules":           true,
+	"allowlists":      true,
+	"extend":          true,
+}
+
+var validRuleFields = map[string]bool{
+	"id": true, "description": true, "regex": true,
+	"secret_group": true, "entropy": true, "path": true,
+	"keywords": true, "tags": true, "allowlists": true,
+	"required": true,
+}
+
+var validAllowlistFields = map[string]bool{
+	"description": true, "paths": true, "regexes": true,
+	"commits": true, "stop_words": true, "regex_target": true,
+	"condition": true,
+}
+
+var validExtendFields = map[string]bool{
+	"use_default": true, "path": true, "disabled_rules": true,
 }
 
 func (p *parser) parseConfig(cfg *Config) {
@@ -26,7 +71,6 @@ func (p *parser) parseConfig(cfg *Config) {
 		line := p.lines[p.pos]
 		trimmed := strings.TrimSpace(line)
 
-		// Skip empty lines and comments
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			p.pos++
 			continue
@@ -34,11 +78,18 @@ func (p *parser) parseConfig(cfg *Config) {
 
 		indent := countIndent(line)
 		if indent > 0 {
+			p.warnf("unexpected indented line at top level: %q", trimmed)
 			p.pos++
 			continue
 		}
 
 		key, _ := splitKeyValue(trimmed)
+		if !validTopLevelKeys[key] {
+			p.warnf("unknown configuration key %q (expected: exclude_commits, exclude_paths, rules, allowlists, extend)", key)
+			p.pos++
+			continue
+		}
+
 		switch key {
 		case "exclude_commits":
 			cfg.ExcludeCommits = p.parseStringList(indent)
@@ -50,14 +101,12 @@ func (p *parser) parseConfig(cfg *Config) {
 			cfg.Allowlists = p.parseAllowlistList(indent)
 		case "extend":
 			cfg.Extend = p.parseExtend(indent)
-		default:
-			p.pos++
 		}
 	}
 }
 
 func (p *parser) parseStringList(parentIndent int) []string {
-	p.pos++ // skip the key line
+	p.pos++
 	var items []string
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
@@ -77,6 +126,8 @@ func (p *parser) parseStringList(parentIndent int) []string {
 			val := strings.TrimPrefix(trimmed, "- ")
 			val = unquoteYAML(val)
 			items = append(items, val)
+		} else {
+			p.warnf("expected list item starting with '- ', got: %q", trimmed)
 		}
 		p.pos++
 	}
@@ -84,7 +135,7 @@ func (p *parser) parseStringList(parentIndent int) []string {
 }
 
 func (p *parser) parseRuleList(parentIndent int) []RuleConfig {
-	p.pos++ // skip "rules:" line
+	p.pos++
 	var rules []RuleConfig
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
@@ -102,8 +153,16 @@ func (p *parser) parseRuleList(parentIndent int) []RuleConfig {
 
 		if strings.HasPrefix(trimmed, "- ") {
 			rule := p.parseRule(indent)
+			// Validate required fields.
+			if rule.ID == "" {
+				p.errorf("rule is missing required 'id' field")
+			}
+			if rule.Regex == "" {
+				p.errorf("rule %q is missing required 'regex' field", rule.ID)
+			}
 			rules = append(rules, rule)
 		} else {
+			p.warnf("expected rule list item starting with '- ', got: %q", trimmed)
 			p.pos++
 		}
 	}
@@ -115,13 +174,11 @@ func (p *parser) parseRule(listItemIndent int) RuleConfig {
 	line := p.lines[p.pos]
 	trimmed := strings.TrimSpace(line)
 
-	// Parse first line (starts with "- key: val")
 	first := strings.TrimPrefix(trimmed, "- ")
 	key, val := splitKeyValue(first)
-	setRuleField(&rule, key, val)
+	p.setRuleFieldChecked(&rule, key, val)
 	p.pos++
 
-	// Parse subsequent lines at deeper indent
 	for p.pos < len(p.lines) {
 		line = p.lines[p.pos]
 		trimmed = strings.TrimSpace(line)
@@ -154,7 +211,7 @@ func (p *parser) parseRule(listItemIndent int) RuleConfig {
 			rule.Allowlists = p.parseAllowlistList(indent)
 			continue
 		default:
-			setRuleField(&rule, key, val)
+			p.setRuleFieldChecked(&rule, key, val)
 		}
 		p.pos++
 	}
@@ -162,7 +219,7 @@ func (p *parser) parseRule(listItemIndent int) RuleConfig {
 }
 
 func (p *parser) parseAllowlistList(parentIndent int) []Allowlist {
-	p.pos++ // skip key line
+	p.pos++
 	var lists []Allowlist
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
@@ -182,6 +239,7 @@ func (p *parser) parseAllowlistList(parentIndent int) []Allowlist {
 			al := p.parseAllowlist(indent)
 			lists = append(lists, al)
 		} else {
+			p.warnf("expected allowlist item starting with '- ', got: %q", trimmed)
 			p.pos++
 		}
 	}
@@ -195,7 +253,7 @@ func (p *parser) parseAllowlist(listItemIndent int) Allowlist {
 
 	first := strings.TrimPrefix(trimmed, "- ")
 	key, val := splitKeyValue(first)
-	setAllowlistField(&al, key, val)
+	p.setAllowlistFieldChecked(&al, key, val)
 	p.pos++
 
 	for p.pos < len(p.lines) {
@@ -232,7 +290,7 @@ func (p *parser) parseAllowlist(listItemIndent int) Allowlist {
 			}
 			continue
 		default:
-			setAllowlistField(&al, key, val)
+			p.setAllowlistFieldChecked(&al, key, val)
 		}
 		p.pos++
 	}
@@ -240,7 +298,7 @@ func (p *parser) parseAllowlist(listItemIndent int) Allowlist {
 }
 
 func (p *parser) parseExtend(parentIndent int) *ExtendConfig {
-	p.pos++ // skip "extend:" line
+	p.pos++
 	ext := &ExtendConfig{}
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
@@ -257,8 +315,16 @@ func (p *parser) parseExtend(parentIndent int) *ExtendConfig {
 		}
 
 		key, val := splitKeyValue(trimmed)
+		if !validExtendFields[key] {
+			p.warnf("unknown extend field %q (expected: use_default, path, disabled_rules)", key)
+			p.pos++
+			continue
+		}
 		switch key {
 		case "use_default":
+			if val != "true" && val != "false" {
+				p.errorf("extend.use_default must be 'true' or 'false', got %q", val)
+			}
 			ext.UseDefault = val == "true"
 		case "path":
 			ext.Path = unquoteYAML(val)
@@ -272,7 +338,6 @@ func (p *parser) parseExtend(parentIndent int) *ExtendConfig {
 }
 
 func (p *parser) parseStringListOrInline(val string, indent int) []string {
-	// Check for inline list: [a, b, c]
 	if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
 		inner := val[1 : len(val)-1]
 		parts := strings.Split(inner, ",")
@@ -288,18 +353,16 @@ func (p *parser) parseStringListOrInline(val string, indent int) []string {
 		return items
 	}
 
-	// Block list (val is empty, items follow as "- val")
 	if val == "" {
 		return p.parseStringList2(indent)
 	}
 
-	// Single value
 	p.pos++
 	return []string{unquoteYAML(val)}
 }
 
 func (p *parser) parseStringList2(parentIndent int) []string {
-	p.pos++ // skip key line
+	p.pos++
 	var items []string
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
@@ -319,10 +382,72 @@ func (p *parser) parseStringList2(parentIndent int) []string {
 			val := strings.TrimPrefix(trimmed, "- ")
 			val = unquoteYAML(val)
 			items = append(items, val)
+		} else {
+			p.warnf("expected list item starting with '- ', got: %q", trimmed)
 		}
 		p.pos++
 	}
 	return items
+}
+
+// setRuleFieldChecked sets a rule field and warns on unknown keys or invalid values.
+func (p *parser) setRuleFieldChecked(rule *RuleConfig, key, val string) {
+	if !validRuleFields[key] {
+		p.warnf("unknown rule field %q (expected: id, description, regex, secret_group, entropy, path, keywords, tags, allowlists, required)", key)
+		return
+	}
+	val = unquoteYAML(val)
+	switch key {
+	case "id":
+		rule.ID = val
+	case "description":
+		rule.Description = val
+	case "regex":
+		rule.Regex = val
+	case "secret_group":
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			p.errorf("rule %q: secret_group must be an integer, got %q", rule.ID, val)
+			return
+		}
+		rule.SecretGroup = n
+	case "entropy":
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			p.errorf("rule %q: entropy must be a number, got %q", rule.ID, val)
+			return
+		}
+		rule.Entropy = f
+	case "path":
+		rule.Path = val
+	}
+}
+
+// setAllowlistFieldChecked sets an allowlist field and warns on unknown keys.
+func (p *parser) setAllowlistFieldChecked(al *Allowlist, key, val string) {
+	if !validAllowlistFields[key] {
+		p.warnf("unknown allowlist field %q (expected: description, paths, regexes, commits, stop_words, regex_target, condition)", key)
+		return
+	}
+	val = unquoteYAML(val)
+	switch key {
+	case "description":
+		al.Description = val
+	case "regex_target":
+		target := strings.ToLower(val)
+		if target != "secret" && target != "match" && target != "line" {
+			p.errorf("allowlist regex_target must be 'secret', 'match', or 'line', got %q", val)
+			return
+		}
+		al.RegexTarget = val
+	case "condition":
+		cond := strings.ToUpper(val)
+		if cond != "OR" && cond != "AND" {
+			p.errorf("allowlist condition must be 'OR' or 'AND', got %q", val)
+			return
+		}
+		al.Condition = val
+	}
 }
 
 // Helper functions
@@ -360,41 +485,8 @@ func unquoteYAML(s string) string {
 			if err == nil {
 				return unq
 			}
-			// For single-quoted strings, just strip quotes
 			return s[1 : len(s)-1]
 		}
 	}
 	return s
-}
-
-func setRuleField(rule *RuleConfig, key, val string) {
-	val = unquoteYAML(val)
-	switch key {
-	case "id":
-		rule.ID = val
-	case "description":
-		rule.Description = val
-	case "regex":
-		rule.Regex = val
-	case "secret_group":
-		n, _ := strconv.Atoi(val)
-		rule.SecretGroup = n
-	case "entropy":
-		f, _ := strconv.ParseFloat(val, 64)
-		rule.Entropy = f
-	case "path":
-		rule.Path = val
-	}
-}
-
-func setAllowlistField(al *Allowlist, key, val string) {
-	val = unquoteYAML(val)
-	switch key {
-	case "description":
-		al.Description = val
-	case "regex_target":
-		al.RegexTarget = val
-	case "condition":
-		al.Condition = val
-	}
 }

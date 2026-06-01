@@ -88,56 +88,137 @@ func TestUnquoteYAML(t *testing.T) {
 	}
 }
 
-func TestSetRuleField(t *testing.T) {
+func TestSetRuleFieldChecked(t *testing.T) {
 	tests := []struct {
-		name  string
-		key   string
-		val   string
-		check func(*RuleConfig) bool
+		name      string
+		key       string
+		val       string
+		check     func(*RuleConfig) bool
+		wantErr   bool
+		wantWarn  bool
 	}{
-		{"id", "id", "test-id", func(r *RuleConfig) bool { return r.ID == "test-id" }},
-		{"description", "description", "test desc", func(r *RuleConfig) bool { return r.Description == "test desc" }},
-		{"regex", "regex", ".*", func(r *RuleConfig) bool { return r.Regex == ".*" }},
-		{"secret_group", "secret_group", "3", func(r *RuleConfig) bool { return r.SecretGroup == 3 }},
-		{"entropy", "entropy", "4.2", func(r *RuleConfig) bool { return r.Entropy == 4.2 }},
-		{"path", "path", "src/", func(r *RuleConfig) bool { return r.Path == "src/" }},
-		{"invalid secret_group", "secret_group", "notanint", func(r *RuleConfig) bool { return r.SecretGroup == 0 }},
-		{"invalid entropy", "entropy", "notafloat", func(r *RuleConfig) bool { return r.Entropy == 0.0 }},
-		{"unknown key", "unknown", "val", func(r *RuleConfig) bool { return r.ID == "" }},
-		{"quoted id", "id", `"quoted-id"`, func(r *RuleConfig) bool { return r.ID == "quoted-id" }},
+		{"id", "id", "test-id", func(r *RuleConfig) bool { return r.ID == "test-id" }, false, false},
+		{"description", "description", "test desc", func(r *RuleConfig) bool { return r.Description == "test desc" }, false, false},
+		{"regex", "regex", ".*", func(r *RuleConfig) bool { return r.Regex == ".*" }, false, false},
+		{"secret_group", "secret_group", "3", func(r *RuleConfig) bool { return r.SecretGroup == 3 }, false, false},
+		{"entropy", "entropy", "4.2", func(r *RuleConfig) bool { return r.Entropy == 4.2 }, false, false},
+		{"path", "path", "src/", func(r *RuleConfig) bool { return r.Path == "src/" }, false, false},
+		{"invalid secret_group", "secret_group", "notanint", func(r *RuleConfig) bool { return r.SecretGroup == 0 }, true, false},
+		{"invalid entropy", "entropy", "notafloat", func(r *RuleConfig) bool { return r.Entropy == 0.0 }, true, false},
+		{"unknown key", "unknown", "val", func(r *RuleConfig) bool { return r.ID == "" }, false, true},
+		{"quoted id", "id", `"quoted-id"`, func(r *RuleConfig) bool { return r.ID == "quoted-id" }, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			p := &parser{lines: []string{"dummy"}, pos: 0}
 			var rule RuleConfig
-			setRuleField(&rule, tt.key, tt.val)
+			p.setRuleFieldChecked(&rule, tt.key, tt.val)
 			if !tt.check(&rule) {
-				t.Errorf("setRuleField(%q, %q) did not produce expected result: %+v", tt.key, tt.val, rule)
+				t.Errorf("setRuleFieldChecked(%q, %q) did not produce expected result: %+v", tt.key, tt.val, rule)
+			}
+			if tt.wantErr && len(p.errors) == 0 {
+				t.Error("expected error, got none")
+			}
+			if tt.wantWarn && len(p.warnings) == 0 {
+				t.Error("expected warning, got none")
 			}
 		})
 	}
 }
 
-func TestSetAllowlistField(t *testing.T) {
+func TestSetAllowlistFieldChecked(t *testing.T) {
 	tests := []struct {
-		name  string
-		key   string
-		val   string
-		check func(*Allowlist) bool
+		name     string
+		key      string
+		val      string
+		check    func(*Allowlist) bool
+		wantErr  bool
+		wantWarn bool
 	}{
-		{"description", "description", "test", func(a *Allowlist) bool { return a.Description == "test" }},
-		{"regex_target", "regex_target", "match", func(a *Allowlist) bool { return a.RegexTarget == "match" }},
-		{"condition", "condition", "AND", func(a *Allowlist) bool { return a.Condition == "AND" }},
-		{"unknown", "unknown", "val", func(a *Allowlist) bool { return a.Description == "" }},
-		{"quoted description", "description", `"quoted"`, func(a *Allowlist) bool { return a.Description == "quoted" }},
+		{"description", "description", "test", func(a *Allowlist) bool { return a.Description == "test" }, false, false},
+		{"regex_target", "regex_target", "match", func(a *Allowlist) bool { return a.RegexTarget == "match" }, false, false},
+		{"condition", "condition", "AND", func(a *Allowlist) bool { return a.Condition == "AND" }, false, false},
+		{"unknown", "unknown", "val", func(a *Allowlist) bool { return a.Description == "" }, false, true},
+		{"quoted description", "description", `"quoted"`, func(a *Allowlist) bool { return a.Description == "quoted" }, false, false},
+		{"invalid regex_target", "regex_target", "bogus", func(a *Allowlist) bool { return a.RegexTarget == "" }, true, false},
+		{"invalid condition", "condition", "MAYBE", func(a *Allowlist) bool { return a.Condition == "" }, true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			p := &parser{lines: []string{"dummy"}, pos: 0}
 			var al Allowlist
-			setAllowlistField(&al, tt.key, tt.val)
+			p.setAllowlistFieldChecked(&al, tt.key, tt.val)
 			if !tt.check(&al) {
-				t.Errorf("setAllowlistField(%q, %q) did not produce expected result: %+v", tt.key, tt.val, al)
+				t.Errorf("setAllowlistFieldChecked(%q, %q) did not produce expected result: %+v", tt.key, tt.val, al)
+			}
+			if tt.wantErr && len(p.errors) == 0 {
+				t.Error("expected error, got none")
+			}
+			if tt.wantWarn && len(p.warnings) == 0 {
+				t.Error("expected warning, got none")
 			}
 		})
+	}
+}
+
+func TestParseErrors(t *testing.T) {
+	// Rule missing id.
+	_, err := parse([]byte("rules:\n  - regex: \".*\"\n"))
+	if err == nil {
+		t.Error("expected error for rule missing id")
+	}
+
+	// Rule missing regex.
+	_, err = parse([]byte("rules:\n  - id: test\n"))
+	if err == nil {
+		t.Error("expected error for rule missing regex")
+	}
+
+	// Invalid secret_group.
+	_, err = parse([]byte("rules:\n  - id: test\n    regex: \".*\"\n    secret_group: abc\n"))
+	if err == nil {
+		t.Error("expected error for invalid secret_group")
+	}
+
+	// Invalid extend.use_default.
+	_, err = parse([]byte("extend:\n  use_default: maybe\n"))
+	if err == nil {
+		t.Error("expected error for invalid use_default")
+	}
+
+	// Invalid allowlist condition.
+	_, err = parse([]byte("allowlists:\n  - condition: MAYBE\n"))
+	if err == nil {
+		t.Error("expected error for invalid allowlist condition")
+	}
+}
+
+func TestParseWarnings(t *testing.T) {
+	// Unknown top-level key.
+	cfg, err := parse([]byte("bogus_key: value\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Warnings) == 0 {
+		t.Error("expected warning for unknown top-level key")
+	}
+
+	// Unknown rule field.
+	cfg, err = parse([]byte("rules:\n  - id: test\n    regex: \".*\"\n    bogus: value\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Warnings) == 0 {
+		t.Error("expected warning for unknown rule field")
+	}
+
+	// Unknown extend field.
+	cfg, err = parse([]byte("extend:\n  use_default: true\n  bogus: value\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Warnings) == 0 {
+		t.Error("expected warning for unknown extend field")
 	}
 }
 
@@ -194,6 +275,7 @@ func TestParseStringListWithEmptyLines(t *testing.T) {
 func TestParseInlineListWithQuotes(t *testing.T) {
 	data := `rules:
   - id: r1
+    regex: ".*"
     keywords: ["quoted", 'single']
 `
 	cfg, err := parse([]byte(data))
@@ -212,6 +294,7 @@ func TestParseInlineListWithQuotes(t *testing.T) {
 func TestParseInlineListEmpty(t *testing.T) {
 	data := `rules:
   - id: r1
+    regex: ".*"
     keywords: []
 `
 	cfg, err := parse([]byte(data))
@@ -253,6 +336,7 @@ func TestParseExtendWithComments(t *testing.T) {
 func TestParseRuleWithAllowlistBlockLists(t *testing.T) {
 	data := `rules:
   - id: r1
+    regex: ".*"
     allowlists:
       - description: al1
         paths:
@@ -295,6 +379,7 @@ func TestParseStringList2WithComments(t *testing.T) {
 	// Exercises parseStringList2 directly via block-style keywords in a rule
 	data := `rules:
   - id: r1
+    regex: ".*"
     keywords:
       # a comment
       - kw1
@@ -352,6 +437,7 @@ exclude_paths:
   - path2
 rules:
   - id: rule1
+    regex: ".*"
     description: "Rule one"
     regex: "pattern"
     secret_group: 2
@@ -473,8 +559,10 @@ func TestParseTabIndentation(t *testing.T) {
 func TestParseRuleEmptyAllowlists(t *testing.T) {
 	data := `rules:
   - id: r1
+    regex: ".*"
     allowlists:
   - id: r2
+    regex: ".*"
 `
 	cfg, err := parse([]byte(data))
 	if err != nil {
@@ -535,8 +623,10 @@ func TestParseRuleBreaksOnNewListItem(t *testing.T) {
 	// Tests that parseRule breaks when encountering a new "- " item at same indent
 	data := `rules:
   - id: r1
+    regex: ".*"
     description: first
   - id: r2
+    regex: ".*"
     description: second
 `
 	cfg, err := parse([]byte(data))
@@ -608,8 +698,10 @@ func TestParseRuleBreaksOnDashWithoutColon(t *testing.T) {
 	// In parseRule, a line starting with "- " at rule indent level should trigger break
 	data := `rules:
   - id: r1
+    regex: ".*"
     description: first
   - id: r2
+    regex: ".*"
 `
 	cfg, err := parse([]byte(data))
 	if err != nil {
@@ -623,6 +715,7 @@ func TestParseRuleBreaksOnDashWithoutColon(t *testing.T) {
 func TestParseRuleCommentsAndEmptyInBody(t *testing.T) {
 	data := `rules:
   - id: r1
+    regex: ".*"
     # comment in rule body
 
     description: desc1
@@ -644,6 +737,7 @@ func TestParseRuleListCommentsAndEmpty(t *testing.T) {
   # comment before first rule
 
   - id: r1
+    regex: ".*"
 `
 	cfg, err := parse([]byte(data))
 	if err != nil {
@@ -685,21 +779,20 @@ func TestParseExtendEmptyWithComments(t *testing.T) {
 }
 
 func TestParseRuleBodyDashLineBreaks(t *testing.T) {
-	// Test that a "- " line at deeper indent inside rule body triggers the break
-	// This exercises the "if strings.HasPrefix(trimmed, "- ") { break }" in parseRule
+	// A stray "- item" inside a rule body is malformed YAML.
+	// The parser should report an error since it gets treated as a new
+	// rule without required id/regex fields.
 	data := `rules:
   - id: r1
+    regex: ".*"
     description: first
     - stray_item
   - id: r2
+    regex: ".*"
 `
-	cfg, err := parse([]byte(data))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	// r1 should stop parsing at "- stray_item", then r2 should be parsed
-	if cfg.Rules[0].ID != "r1" {
-		t.Errorf("rule[0].ID = %q", cfg.Rules[0].ID)
+	_, err := parse([]byte(data))
+	if err == nil {
+		t.Error("expected error for stray list item in rule body")
 	}
 }
 

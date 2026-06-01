@@ -309,6 +309,7 @@ func TestLoadInlineStringLists(t *testing.T) {
 	path := filepath.Join(dir, "inline.yml")
 	content := `rules:
   - id: inline-rule
+    regex: "SECRET_[A-Z]+"
     keywords: [password, secret, key]
     tags: [tag1, tag2]
 `
@@ -435,6 +436,7 @@ func TestLoadSingleValueKeywordsTags(t *testing.T) {
 	path := filepath.Join(dir, "single.yml")
 	content := `rules:
   - id: r1
+    regex: ".*"
     keywords: onlyone
     tags: singletag
 `
@@ -497,9 +499,11 @@ func TestLoadMultipleRulesWithComments(t *testing.T) {
 rules:
   # Comment before rule
   - id: r1
+    regex: ".*"
     description: first
   # Another comment
   - id: r2
+    regex: ".*"
     description: second
 `
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -522,6 +526,7 @@ func TestLoadRuleWithZeroSecretGroupAndEntropy(t *testing.T) {
 	path := filepath.Join(dir, "zero.yml")
 	content := `rules:
   - id: r1
+    regex: ".*"
     secret_group: 0
     entropy: 0.0
 `
@@ -571,10 +576,11 @@ func TestLoadMultipleAllowlists(t *testing.T) {
 func TestLoadNonListLineInRules(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nonlist.yml")
-	// A line inside rules block that doesn't start with "- " should be skipped
+	// A line inside rules block that doesn't start with "- " should produce a warning
 	content := `rules:
   someorphanline
   - id: r1
+    regex: ".*"
 `
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
