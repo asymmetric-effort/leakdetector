@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -904,20 +905,28 @@ func TestGetRemoteURL_WithOrigin(t *testing.T) {
 		t.Skip("git not available")
 	}
 
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	cmd.Run()
-
-	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/testowner/testrepo.git")
-	cmd.Dir = dir
-	cmd.Run()
-
-	got := getRemoteURL(dir)
-	expected := "https://github.com/testowner/testrepo.git"
-	if got != expected {
-		t.Errorf("getRemoteURL = %q, want %q", got, expected)
+	// Use the actual leakdetector repo rather than a fabricated one,
+	// since git config may rewrite URLs (e.g. HTTPS to SSH).
+	repoRoot := findRepoRoot(t)
+	got := getRemoteURL(repoRoot)
+	if got == "" {
+		t.Skip("no remote origin configured")
 	}
+	// The remote should reference asymmetric-effort/leakdetector regardless of protocol.
+	if !strings.Contains(got, "asymmetric-effort/leakdetector") {
+		t.Errorf("getRemoteURL = %q, expected it to contain 'asymmetric-effort/leakdetector'", got)
+	}
+}
+
+// findRepoRoot walks up from the working directory to find the git repo root.
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("failed to find repo root: %v", err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func TestGetRemoteURL_NoOrigin(t *testing.T) {
