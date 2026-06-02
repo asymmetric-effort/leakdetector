@@ -533,10 +533,19 @@ func TestScanGit_MergeCommit(t *testing.T) {
 	runGit("config", "user.email", "test@test.com")
 	runGit("config", "user.name", "Test")
 
-	// Create initial commit on main.
+	// Create initial commit on default branch.
 	os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init\n"), 0644)
 	runGit("add", "init.txt")
 	runGit("commit", "-m", "initial")
+
+	// Detect default branch name (may be "main" or "master").
+	defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	defaultBranchCmd.Dir = dir
+	branchOut, err := defaultBranchCmd.Output()
+	if err != nil {
+		t.Fatalf("failed to get default branch: %v", err)
+	}
+	defaultBranch := strings.TrimSpace(string(branchOut))
 
 	// Create a feature branch with a secret.
 	runGit("checkout", "-b", "feature")
@@ -544,8 +553,8 @@ func TestScanGit_MergeCommit(t *testing.T) {
 	runGit("add", "feature.txt")
 	runGit("commit", "-m", "add feature with secret")
 
-	// Switch back to main and create a different commit.
-	runGit("checkout", "master")
+	// Switch back to default branch and create a different commit.
+	runGit("checkout", defaultBranch)
 	os.WriteFile(filepath.Join(dir, "main.txt"), []byte("main content\n"), 0644)
 	runGit("add", "main.txt")
 	runGit("commit", "-m", "add main content")
