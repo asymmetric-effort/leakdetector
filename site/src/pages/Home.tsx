@@ -36,11 +36,24 @@ export function Home() {
 
       <div class="section">
         <h2>Installation</h2>
-        <p>Build from source using the included Makefile:</p>
+
+        <h3>Homebrew (macOS / Linux)</h3>
+        <pre><code>{`brew tap asymmetric-effort/tap
+brew trust asymmetric-effort/tap
+brew install leakdetector`}</code></pre>
+
+        <h3>From Source</h3>
+        <p>Requires Go 1.26 or later:</p>
         <pre><code>{`git clone https://github.com/asymmetric-effort/leakdetector.git
 cd leakdetector
 make build`}</code></pre>
-        <p>The compiled binary will be placed in the <code>build/</code> directory.</p>
+        <p>Binaries are output to <code>build/&lt;os&gt;/&lt;arch&gt;/leakdetector</code>.</p>
+
+        <h3>From GitHub Release</h3>
+        <p>Download the latest binary from <a href="https://github.com/asymmetric-effort/leakdetector/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>:</p>
+        <pre><code>{`# Example: Linux amd64
+curl -sL https://github.com/asymmetric-effort/leakdetector/releases/latest/download/leakdetector_linux_amd64.tar.gz | tar xz
+sudo mv leakdetector /usr/local/bin/`}</code></pre>
       </div>
 
       <div class="section">
