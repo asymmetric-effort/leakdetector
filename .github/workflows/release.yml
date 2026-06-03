@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build cross-platform binaries
+        run: make build
+
+      - name: Create release tarballs
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          mkdir -p dist
+          for os in linux darwin; do
+            for arch in amd64 arm64; do
+              BINARY="build/${os}/${arch}/leakdetector"
+              if [ "${os}" = "windows" ]; then
+                BINARY="${BINARY}.exe"
+              fi
+              if [ ! -f "$BINARY" ]; then
+                echo "Skipping ${os}/${arch}: binary not found"
+                continue
+              fi
+              TARBALL="dist/leakdetector_${os}_${arch}.tar.gz"
+              tar -czf "$TARBALL" -C "build/${os}/${arch}" leakdetector
+              echo "Created $TARBALL ($(du -h "$TARBALL" | cut -f1))"
+              sha256sum "$TARBALL"
+            done
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "leakdetector $VERSION" \
+            --generate-notes \
+            dist/leakdetector_*.tar.gz
