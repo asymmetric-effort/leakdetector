@@ -118,8 +118,12 @@ For each line of content:
 
 | Rule ID | Service | Description |
 |---------|---------|-------------|
-| `vault-service-token` | HashiCorp Vault | Service tokens (hvs.) |
+| `vault-token` | HashiCorp Vault | Tokens assigned to a `vault_token` / `VAULT_TOKEN` key |
+| `vault-service-token` | HashiCorp Vault | Legacy `s.` service tokens assigned to a `vault_token` key |
+| `vault-hvs-token` | HashiCorp Vault / OpenBao | `hvs.` service tokens in any context, regardless of key name |
 | `vault-batch-token` | HashiCorp Vault | Batch tokens (hvb.) |
+| `openbao-unseal-key` | OpenBao / Vault | Shamir unseal and recovery key shares (composite: requires an unseal context within 12 lines) |
+| `ansible-vault-cleartext` | Ansible | A vault-named file committed without its `$ANSIBLE_VAULT` header |
 | `terraform-cloud-token` | Terraform | Cloud API tokens |
 | `pulumi-access-token` | Pulumi | Access tokens (pul-) |
 | `kubernetes-secret` | Kubernetes | Secrets in YAML |
