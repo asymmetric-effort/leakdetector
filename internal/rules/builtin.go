@@ -960,6 +960,100 @@ func BuiltinRules() []config.RuleConfig {
 		},
 
 		// =====================================================================
+		// OpenBao / Vault Shamir unseal & recovery key shares
+		// =====================================================================
+		//
+		// `bao operator init` / `vault operator init` emit keys_base64: a
+		// 33-byte value (32-byte share + 1-byte key index) that base64-encodes
+		// to exactly 44 characters, or 66 characters in hex form.
+		//
+		// These are the highest-value secrets a Vault/OpenBao deployment has --
+		// a threshold of them unseals the store and yields every secret in it --
+		// yet they are bare values with no assignment keyword, so no
+		// key-name-based rule detects them. They leak most often through
+		// automation that persists init output to a repo.
+		//
+		// The value alone is indistinguishable from any other base64 blob, so
+		// this is a composite rule: the share must appear within 12 lines of an
+		// unseal/recovery/keys_base64 context. That keeps it precise without
+		// depending on the value's own shape.
+		{
+			ID:          "openbao-unseal-key",
+			Description: "OpenBao/Vault Shamir unseal or recovery key share",
+			// (?m) is REQUIRED: the buffer scanner matches against a
+			// multi-line window, so without it `$` anchors to the end of the
+			// whole window and only the final line of a key list can ever
+			// match. Verified end-to-end -- without (?m) a five-share list
+			// yields one finding instead of five.
+			Regex:       `(?m)["\']?([A-Za-z0-9+/]{43}=|[A-Za-z0-9+/]{44}|[a-fA-F0-9]{66})["\']?[ \t]*,?[ \t]*$`,
+			SecretGroup: 1,
+			Entropy:     4.0,
+			// Deliberately NO Keywords. CompiledRule.Match applies the keyword
+			// pre-filter to the matched LINE, but for this composite rule the
+			// context ("unseal_keys:") sits on a different line than the share.
+			// Keywords and Required are therefore mutually exclusive here --
+			// setting both would make the rule silently never fire. Required
+			// below is what supplies the context filter.
+			Tags: []string{"vault", "openbao", "infrastructure", "unseal-key", "critical"},
+			Required: []config.RequiredRule{
+				{
+					ID:          "unseal-context",
+					Regex:       `(?i)(?:unseal[_\-]?keys?|recovery[_\-]?keys?|keys[_\-]?(?:base64|hex)|shamir)`,
+					WithinLines: 12,
+				},
+			},
+		},
+
+		// =====================================================================
+		// Ansible Vault file committed in cleartext
+		// =====================================================================
+		//
+		// An ansible-vault ENCRYPTED file is a `$ANSIBLE_VAULT;1.1;AES256`
+		// header followed by hex. So inside a file whose name marks it as vault
+		// content, a readable `vault_*:` key can only mean one thing: the file
+		// was committed unencrypted.
+		//
+		// This inverts the usual approach. Rather than trying to recognise the
+		// secret VALUES -- which may be unseal shares, tokens, passwords or
+		// anything else, and which value-based rules will always miss some of --
+		// it detects the STRUCTURAL failure. That makes it deterministic where
+		// entropy heuristics are probabilistic.
+		//
+		// Anchored to line start so Jinja references elsewhere
+		// (`foo: "{{ vault_foo }}"`) do not match, and Path-scoped so it only
+		// applies to files that are supposed to be vault-encrypted.
+		{
+			ID:          "ansible-vault-cleartext",
+			Description: "Ansible Vault file committed in cleartext (expected $ANSIBLE_VAULT header)",
+			Regex:       `(?m)^[ \t]*(vault_[A-Za-z0-9_]+)[ \t]*:`,
+			SecretGroup: 1,
+			Path:        `(?i)(?:^|/)(?:group_vars|host_vars|vars|vault)/.*vault.*\.ya?ml$|(?i)(?:^|/)vault[_\-][A-Za-z0-9_\-]*\.ya?ml$|(?i)(?:^|/)[A-Za-z0-9_\-]*[_\-]vault\.ya?ml$`,
+			Keywords:    []string{"vault_"},
+			Tags:        []string{"ansible", "vault", "structural", "cleartext"},
+		},
+
+		// =====================================================================
+		// Vault / OpenBao hvs. service token (bare, no key-name context)
+		// =====================================================================
+		//
+		// The vault-token and vault-service-token rules require the literal key
+		// name `vault_token`
+		// or `VAULT_TOKEN`. That misses the far more common real-world spellings
+		// -- `vault_openbao_root_token`, `bao_root_token`, `root_token` -- and
+		// any bare occurrence in a log, script or fixture.
+		//
+		// An `hvs.` prefix is unambiguous: it is a Vault/OpenBao service token
+		// and nothing else, so it needs no key-name context.
+		{
+			ID:          "vault-hvs-token",
+			Description: "HashiCorp Vault / OpenBao service token (hvs. prefix, any context)",
+			Regex:       `\b(hvs\.[A-Za-z0-9_\-]{24,})\b`,
+			SecretGroup: 1,
+			Keywords:    []string{"hvs."},
+			Tags:        []string{"vault", "openbao", "infrastructure", "token"},
+		},
+
+		// =====================================================================
 		// Terraform (97)
 		// =====================================================================
 		{
