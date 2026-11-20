@@ -20,12 +20,16 @@ export function Home() {
       <div class="hero">
         <img src="/logo.png" alt="leakdetector logo" class="hero-logo" width="100" height="100" />
         <h1>leakdetector</h1>
-        <p>
+        <p class="hero-subtitle">
           A fast, zero-dependency CLI tool for detecting leaked secrets in git repositories.
           Built in Go with 250+ built-in detection rules, Shannon entropy filtering,
           and comprehensive output formats.
         </p>
-        <div class="hero-badges">
+        <div class="hero-actions">
+          <a href="#/usage" class="btn btn-primary">Get Started</a>
+          <a href="https://github.com/asymmetric-effort/leakdetector" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">GitHub</a>
+        </div>
+        <div class="badges">
           <span class="badge badge-primary">Zero Dependencies</span>
           <span class="badge badge-primary">Go 1.26+</span>
           <span class="badge badge-success">MIT License</span>
