@@ -17,7 +17,7 @@ test.describe("leakdetector site PDV", () => {
     expect(box!.height).toBeLessThanOrEqual(110);
 
     // Title is present.
-    await expect(page.locator(".hero h1")).toContainText("leakdetector");
+    await expect(page.locator(".hero h1")).toContainText("LeakDetector");
 
     // Badges are present.
     const badges = page.locator(".badge");
@@ -65,7 +65,7 @@ test.describe("leakdetector site PDV", () => {
     // Navigate back to home.
     await page.goto(`${BASE_URL}/#/`);
     await page.waitForSelector(".hero", { timeout: 15000 });
-    await expect(page.locator(".hero h1")).toContainText("leakdetector");
+    await expect(page.locator(".hero h1")).toContainText("LeakDetector");
   });
 
   test("footer contains version and copyright", async ({ page }) => {
