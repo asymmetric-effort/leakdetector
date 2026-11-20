@@ -19,7 +19,10 @@ export function Home() {
     <div>
       <div class="hero">
         <img src="/logo.png" alt="leakdetector logo" class="hero-logo" width="100" height="100" />
-        <h1>leakdetector</h1>
+        <h1>
+          <span style={{ color: 'var(--primary)' }}>Leak</span>
+          <span style={{ color: 'var(--text)' }}>Detector</span>
+        </h1>
         <p class="hero-subtitle">
           A fast, zero-dependency CLI tool for detecting leaked secrets in git repositories.
           Built in Go with 250+ built-in detection rules, Shannon entropy filtering,
