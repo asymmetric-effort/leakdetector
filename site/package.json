@@ -10,7 +10,7 @@
     "test": "npx playwright test"
   },
   "dependencies": {
-    "@asymmetric-effort/specifyjs": "latest"
+    "@asymmetric-effort/specifyjs": "^1.3.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.0",
