@@ -151,7 +151,7 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 					}
 					continue
 				}
-				fileFindings, err := scanSingleFile(relPath, realPath, "", rs, opts, linkOwner, linkRepo)
+				fileFindings, err := scanSingleFile(ctx, relPath, realPath, "", rs, opts, linkOwner, linkRepo)
 				if err != nil {
 					if opts.Verbose {
 						fmt.Fprintf(opts.Stderr, "warning: error scanning %s: %v\n", relPath, err)
@@ -159,6 +159,11 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 					continue
 				}
 				findings = append(findings, fileFindings...)
+
+				// Check context between files.
+				if ctx.Err() != nil {
+					return findings, ctx.Err()
+				}
 				continue
 			}
 
@@ -195,7 +200,7 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 				continue
 			}
 
-			fileFindings, err := scanSingleFile(relPath, fullPath, "", rs, opts, linkOwner, linkRepo)
+			fileFindings, err := scanSingleFile(ctx, relPath, fullPath, "", rs, opts, linkOwner, linkRepo)
 			if err != nil {
 				if opts.Verbose {
 					fmt.Fprintf(opts.Stderr, "warning: error scanning %s: %v\n", relPath, err)
@@ -206,8 +211,13 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 
 			// Scan archive contents if enabled.
 			if opts.MaxArchiveDepth > 0 && isArchive(fullPath) {
-				archiveFindings := scanArchive(fullPath, relPath, 1, opts.MaxArchiveDepth, rs, opts)
+				archiveFindings := scanArchive(ctx, fullPath, relPath, 1, opts.MaxArchiveDepth, rs, opts)
 				findings = append(findings, archiveFindings...)
+			}
+
+			// Check context between files.
+			if ctx.Err() != nil {
+				return findings, ctx.Err()
 			}
 		}
 	}
@@ -217,14 +227,14 @@ func scanFiles(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.
 
 // scanSingleFile reads an entire file into a byte buffer and scans it using
 // a sliding window to detect secrets, including those split across lines.
-func scanSingleFile(relPath, fullPath, commit string, rs *rules.RuleSet, opts Options, linkOwner, linkRepo string) ([]finding.Finding, error) {
+func scanSingleFile(ctx context.Context, relPath, fullPath, commit string, rs *rules.RuleSet, opts Options, linkOwner, linkRepo string) ([]finding.Finding, error) {
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return nil, err
 	}
 
 	fb := newFileBuffer(data)
-	findings := scanBuffer(fb, relPath, commit, rs, opts, linkOwner, linkRepo)
+	findings := scanBuffer(ctx, fb, relPath, commit, rs, opts, linkOwner, linkRepo)
 	return findings, nil
 }
 

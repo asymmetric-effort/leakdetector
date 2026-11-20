@@ -735,3 +735,58 @@ func TestScan_StagedModeDoesNotScanHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestScan_StagedMode_WithTimeout(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	rs := testRuleSet(t)
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// Create initial commit.
+	os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init\n"), 0644)
+	runGit("add", "init.txt")
+	runGit("commit", "-m", "initial")
+
+	// Stage a file with a secret.
+	os.WriteFile(filepath.Join(dir, "staged_secret.txt"), []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
+	runGit("add", "staged_secret.txt")
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:     dir,
+		Staged:  true,
+		Timeout: 300, // generous timeout to verify the code path works
+		Stderr:  &stderr,
+	}
+
+	findings, err := Scan(opts, rs)
+	if err != nil {
+		t.Fatalf("Scan with Staged + Timeout returned error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Error("expected at least one finding in staged mode with timeout")
+	}
+}

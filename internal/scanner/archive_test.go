@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,7 +114,7 @@ func TestScanZip(t *testing.T) {
 	createZipWithSecret(t, zipPath)
 
 	opts := Options{Stderr: &bytes.Buffer{}, Verbose: true}
-	findings := scanZip(zipPath, "test.zip", 1, 3, rs, opts)
+	findings := scanZip(context.Background(),zipPath, "test.zip", 1, 3, rs, opts)
 
 	found := false
 	for _, f := range findings {
@@ -135,7 +136,7 @@ func TestScanZip_InvalidFile(t *testing.T) {
 	os.WriteFile(badPath, []byte("not a zip"), 0644)
 
 	opts := Options{Stderr: &bytes.Buffer{}, Verbose: true}
-	findings := scanZip(badPath, "bad.zip", 1, 3, rs, opts)
+	findings := scanZip(context.Background(),badPath, "bad.zip", 1, 3, rs, opts)
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for invalid zip, got %d", len(findings))
@@ -165,7 +166,7 @@ func TestScanZip_LargeFileSkipped(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanZip(zipPath, "withdir.zip", 1, 3, rs, opts)
+	findings := scanZip(context.Background(),zipPath, "withdir.zip", 1, 3, rs, opts)
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for zip with only dirs, got %d", len(findings))
@@ -239,7 +240,7 @@ func TestScanTar(t *testing.T) {
 	createTarWithSecret(t, tarPath)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTar(tarPath, "test.tar", 1, 3, rs, opts)
+	findings := scanTar(context.Background(),tarPath, "test.tar", 1, 3, rs, opts)
 
 	found := false
 	for _, f := range findings {
@@ -256,7 +257,7 @@ func TestScanTar(t *testing.T) {
 func TestScanTar_NonExistent(t *testing.T) {
 	rs := testRuleSet(t)
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTar("/nonexistent.tar", "nope.tar", 1, 3, rs, opts)
+	findings := scanTar(context.Background(),"/nonexistent.tar", "nope.tar", 1, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -288,7 +289,7 @@ func TestScanTarGzip(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTarGzip(tgzPath, "test.tar.gz", 1, 3, rs, opts)
+	findings := scanTarGzip(context.Background(),tgzPath, "test.tar.gz", 1, 3, rs, opts)
 
 	found := false
 	for _, f := range findings {
@@ -305,7 +306,7 @@ func TestScanTarGzip(t *testing.T) {
 func TestScanTarGzip_NonExistent(t *testing.T) {
 	rs := testRuleSet(t)
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTarGzip("/nonexistent.tar.gz", "nope.tar.gz", 1, 3, rs, opts)
+	findings := scanTarGzip(context.Background(),"/nonexistent.tar.gz", "nope.tar.gz", 1, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -319,7 +320,7 @@ func TestScanTarGzip_InvalidGzip(t *testing.T) {
 	os.WriteFile(badPath, []byte("not gzip data"), 0644)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTarGzip(badPath, "bad.tar.gz", 1, 3, rs, opts)
+	findings := scanTarGzip(context.Background(),badPath, "bad.tar.gz", 1, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for invalid gzip, got %d", len(findings))
 	}
@@ -340,7 +341,7 @@ func TestScanGzipFile(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanGzip(gzPath, "secret.txt.gz", 1, 3, rs, opts)
+	findings := scanGzip(context.Background(),gzPath, "secret.txt.gz", 1, 3, rs, opts)
 
 	found := false
 	for _, ff := range findings {
@@ -357,7 +358,7 @@ func TestScanGzipFile(t *testing.T) {
 func TestScanGzip_NonExistent(t *testing.T) {
 	rs := testRuleSet(t)
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanGzip("/nonexistent.gz", "nope.gz", 1, 3, rs, opts)
+	findings := scanGzip(context.Background(),"/nonexistent.gz", "nope.gz", 1, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -371,7 +372,7 @@ func TestScanGzip_InvalidGzip(t *testing.T) {
 	os.WriteFile(badPath, []byte("not gzip"), 0644)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanGzip(badPath, "bad.gz", 1, 3, rs, opts)
+	findings := scanGzip(context.Background(),badPath, "bad.gz", 1, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -385,7 +386,7 @@ func TestScanBzip2(t *testing.T) {
 	bz2Path := createBzip2File(t, dir, "secret.txt", content)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanBzip2(bz2Path, "secret.txt.bz2", 1, 3, rs, opts)
+	findings := scanBzip2(context.Background(),bz2Path, "secret.txt.bz2", 1, 3, rs, opts)
 
 	found := false
 	for _, ff := range findings {
@@ -402,7 +403,7 @@ func TestScanBzip2(t *testing.T) {
 func TestScanBzip2_NonExistent(t *testing.T) {
 	rs := testRuleSet(t)
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanBzip2("/nonexistent.bz2", "nope.bz2", 1, 3, rs, opts)
+	findings := scanBzip2(context.Background(),"/nonexistent.bz2", "nope.bz2", 1, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -440,7 +441,7 @@ func TestScanTarBzip2(t *testing.T) {
 	tbz2Path := tarPath + ".bz2"
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTarBzip2(tbz2Path, "test.tar.bz2", 1, 3, rs, opts)
+	findings := scanTarBzip2(context.Background(),tbz2Path, "test.tar.bz2", 1, 3, rs, opts)
 
 	found := false
 	for _, f := range findings {
@@ -457,7 +458,7 @@ func TestScanTarBzip2(t *testing.T) {
 func TestScanTarBzip2_NonExistent(t *testing.T) {
 	rs := testRuleSet(t)
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTarBzip2("/nonexistent.tar.bz2", "nope.tar.bz2", 1, 3, rs, opts)
+	findings := scanTarBzip2(context.Background(),"/nonexistent.tar.bz2", "nope.tar.bz2", 1, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -480,7 +481,7 @@ func TestScanTarReader_LargeFileSkipped(t *testing.T) {
 
 	tr := tar.NewReader(&buf)
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTarReader(tr, "test.tar", 1, 3, rs, opts)
+	findings := scanTarReader(context.Background(),tr, "test.tar", 1, 3, rs, opts)
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for oversized tar entry, got %d", len(findings))
@@ -493,7 +494,7 @@ func TestScanArchiveReader(t *testing.T) {
 	r := bytes.NewReader([]byte(content))
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchiveReader(r, "archive!file.txt", "", rs, opts)
+	findings := scanArchiveReader(context.Background(),r, "archive!file.txt", "", rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected at least one finding from scanArchiveReader")
@@ -506,7 +507,7 @@ func TestScanArchiveReader_NoSecrets(t *testing.T) {
 	r := bytes.NewReader([]byte(content))
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchiveReader(r, "archive!clean.txt", "", rs, opts)
+	findings := scanArchiveReader(context.Background(),r, "archive!clean.txt", "", rs, opts)
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
@@ -522,19 +523,19 @@ func TestScanArchive_DepthExceeded(t *testing.T) {
 	opts := Options{Stderr: &bytes.Buffer{}}
 
 	// depth > maxDepth
-	findings := scanArchive(zipPath, "test.zip", 4, 3, rs, opts)
+	findings := scanArchive(context.Background(),zipPath, "test.zip", 4, 3, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings when depth exceeded, got %d", len(findings))
 	}
 
 	// maxDepth <= 0
-	findings = scanArchive(zipPath, "test.zip", 1, 0, rs, opts)
+	findings = scanArchive(context.Background(),zipPath, "test.zip", 1, 0, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings when maxDepth is 0, got %d", len(findings))
 	}
 
 	// maxDepth < 0
-	findings = scanArchive(zipPath, "test.zip", 1, -1, rs, opts)
+	findings = scanArchive(context.Background(),zipPath, "test.zip", 1, -1, rs, opts)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings when maxDepth is negative, got %d", len(findings))
 	}
@@ -547,7 +548,7 @@ func TestScanArchive_Zip(t *testing.T) {
 	createZipWithSecret(t, zipPath)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(zipPath, "test.zip", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),zipPath, "test.zip", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from zip archive")
@@ -561,7 +562,7 @@ func TestScanArchive_Tar(t *testing.T) {
 	createTarWithSecret(t, tarPath)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(tarPath, "test.tar", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),tarPath, "test.tar", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from tar archive")
@@ -592,7 +593,7 @@ func TestScanArchive_TarGz(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(tgzPath, "test.tar.gz", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),tgzPath, "test.tar.gz", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from tar.gz archive")
@@ -624,7 +625,7 @@ func TestScanArchive_TarGzip(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(tgzPath, "test.tar.gzip", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),tgzPath, "test.tar.gzip", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from .tar.gzip archive")
@@ -655,7 +656,7 @@ func TestScanArchive_Tgz(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(tgzPath, "test.tgz", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),tgzPath, "test.tgz", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from .tgz archive")
@@ -677,7 +678,7 @@ func TestScanArchive_Gz(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(gzPath, "secret.txt.gz", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),gzPath, "secret.txt.gz", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from .gz archive")
@@ -699,7 +700,7 @@ func TestScanArchive_GzipExtension(t *testing.T) {
 	f.Close()
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(gzPath, "secret.txt.gzip", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),gzPath, "secret.txt.gzip", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from .gzip archive")
@@ -714,7 +715,7 @@ func TestScanArchive_Bz2(t *testing.T) {
 	bz2Path := createBzip2File(t, dir, "secret.txt", content)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(bz2Path, "secret.txt.bz2", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),bz2Path, "secret.txt.bz2", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from .bz2 archive")
@@ -752,7 +753,7 @@ func TestScanArchive_TarBz2(t *testing.T) {
 	tbz2Path := tarPath + ".bz2"
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(tbz2Path, "test.tar.bz2", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),tbz2Path, "test.tar.bz2", 1, 3, rs, opts)
 
 	if len(findings) == 0 {
 		t.Error("expected findings from .tar.bz2 archive")
@@ -766,7 +767,7 @@ func TestScanArchive_UnknownExtension(t *testing.T) {
 	os.WriteFile(path, []byte("AKIAIOSFODNN7EXAMPLE\n"), 0644)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanArchive(path, "file.txt", 1, 3, rs, opts)
+	findings := scanArchive(context.Background(),path, "file.txt", 1, 3, rs, opts)
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for unknown extension, got %d", len(findings))
@@ -822,7 +823,7 @@ func TestScanZip_LargeUncompressedEntry(t *testing.T) {
 	os.WriteFile(zipPath, data, 0644)
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanZip(zipPath, "large_entry.zip", 1, 3, rs, opts)
+	findings := scanZip(context.Background(),zipPath, "large_entry.zip", 1, 3, rs, opts)
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for large entry, got %d", len(findings))
@@ -876,7 +877,7 @@ func TestScanZip_EntryOpenError(t *testing.T) {
 	os.WriteFile(zipPath, data, 0644)
 
 	opts := Options{Stderr: &bytes.Buffer{}, Verbose: true}
-	findings := scanZip(zipPath, "corrupt.zip", 1, 3, rs, opts)
+	findings := scanZip(context.Background(),zipPath, "corrupt.zip", 1, 3, rs, opts)
 
 	// The entry should fail to open due to unsupported compression
 	if len(findings) != 0 {
@@ -893,7 +894,7 @@ func TestScanTarReader_EmptyTar(t *testing.T) {
 
 	tr := tar.NewReader(&buf)
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings := scanTarReader(tr, "empty.tar", 1, 3, rs, opts)
+	findings := scanTarReader(context.Background(),tr, "empty.tar", 1, 3, rs, opts)
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for empty tar, got %d", len(findings))

@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -11,8 +12,8 @@ import (
 )
 
 // scanStaged runs git diff --staged and scans added lines against all rules.
-func scanStaged(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
-	cmd := exec.Command("git", "diff", "--staged")
+func scanStaged(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
+	cmd := exec.CommandContext(ctx, "git", "diff", "--staged")
 	cmd.Dir = opts.Dir
 
 	stdout, err := cmd.StdoutPipe()
@@ -31,12 +32,19 @@ func scanStaged(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 	scanner.Buffer(make([]byte, 0, maxLineSize), maxLineSize)
 
 	var (
-		filePath string
-		lineNum  int
-		inDiff   bool
+		filePath  string
+		lineNum   int
+		inDiff    bool
+		lineCount int
 	)
 
 	for scanner.Scan() {
+		lineCount++
+		if lineCount%1000 == 0 {
+			if ctx.Err() != nil {
+				return findings, ctx.Err()
+			}
+		}
 		line := scanner.Text()
 
 		// Parse diff headers.

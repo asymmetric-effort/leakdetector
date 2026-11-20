@@ -61,7 +61,14 @@ func scanGit(ctx context.Context, opts Options, rs *rules.RuleSet) ([]finding.Fi
 		inDiff    bool
 	)
 
+	lineCount := 0
 	for scanner.Scan() {
+		lineCount++
+		if lineCount%1000 == 0 {
+			if ctx.Err() != nil {
+				return findings, ctx.Err()
+			}
+		}
 		line := scanner.Text()
 
 		// Parse commit header.

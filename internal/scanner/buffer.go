@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"sort"
 	"strings"
 
@@ -119,7 +120,7 @@ type matchKey struct {
 // scanBuffer scans a file buffer using sliding windows to detect secrets,
 // including those split across line boundaries. linkOwner/linkRepo are
 // pre-resolved remote URL components for platform link generation.
-func scanBuffer(fb *fileBuffer, filePath, commit string, rs *rules.RuleSet, opts Options, linkOwner, linkRepo string) []finding.Finding {
+func scanBuffer(ctx context.Context, fb *fileBuffer, filePath, commit string, rs *rules.RuleSet, opts Options, linkOwner, linkRepo string) []finding.Finding {
 	var findings []finding.Finding
 	seen := make(map[matchKey]struct{})
 
@@ -130,7 +131,14 @@ func scanBuffer(fb *fileBuffer, filePath, commit string, rs *rules.RuleSet, opts
 	}
 
 	// Slide a window across the buffer.
+	windowCount := 0
 	for offset := 0; offset < len(fb.data); offset += step {
+		windowCount++
+		if windowCount%1000 == 0 {
+			if ctx.Err() != nil {
+				return findings
+			}
+		}
 		end := offset + windowSize
 		if end > len(fb.data) {
 			end = len(fb.data)

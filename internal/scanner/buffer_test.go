@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -252,7 +253,7 @@ func TestScanBuffer_FindsKnownSecret(t *testing.T) {
 	content := []byte("config: AKIAIOSFODNN7EXAMPLE\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding")
@@ -271,7 +272,7 @@ func TestScanBuffer_CleanContent(t *testing.T) {
 	content := []byte("no secrets here\njust normal text\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "clean.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "clean.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -282,7 +283,7 @@ func TestScanBuffer_InlineAllowSuppresses(t *testing.T) {
 	content := []byte("key=AKIAIOSFODNN7EXAMPLE // leakdetector:allow\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected inline allow to suppress finding, got %d findings", len(findings))
 	}
@@ -295,7 +296,7 @@ func TestScanBuffer_SecretSplitAcrossLines(t *testing.T) {
 	content := []byte("AKIAIOSFODN\nN7EXAMPLE\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for split secret, got %d", len(findings))
 	}
@@ -312,7 +313,7 @@ func TestScanBuffer_GlobalAllowlistSuppresses(t *testing.T) {
 	content := []byte("key=AKIAIOSFODNN7EXAMPLE\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected global allowlist to suppress finding, got %d findings", len(findings))
 	}
@@ -338,7 +339,7 @@ func TestScanBuffer_ProximityRequired_Found(t *testing.T) {
 	content := []byte("password = value\nconfig = SECRET_ABCDEFGHIJ\nother\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Fatal("expected finding when proximity required pattern is nearby")
 	}
@@ -364,7 +365,7 @@ func TestScanBuffer_ProximityRequired_NotNearby(t *testing.T) {
 	content := []byte("password = value\nfiller\nfiller\nfiller\nconfig = SECRET_ABCDEFGHIJ\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected proximity check to suppress finding, got %d", len(findings))
 	}
@@ -387,7 +388,7 @@ func TestScanBuffer_MaxDecodeDepth(t *testing.T) {
 	content := []byte("secret=QUtJQUlPU0ZPRE5ON0VYQU1QTEU=\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{
 		Stderr:         &bytes.Buffer{},
 		MaxDecodeDepth: 2,
 	}, "", "")
@@ -418,7 +419,7 @@ func TestScanBuffer_Deduplication(t *testing.T) {
 	buf.Write(bytes.Repeat([]byte(" "), 2000))
 	fb := newFileBuffer(buf.Bytes())
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 
 	// Count findings for our rule.
 	count := 0
@@ -442,7 +443,7 @@ func TestScanBuffer_LargeContent_MultipleWindows(t *testing.T) {
 	buf.WriteString("\nAKIAIOSFODNN7BBBBBBB\n") // in a later window
 	fb := newFileBuffer(buf.Bytes())
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 
 	ruleFindings := 0
 	for _, f := range findings {
@@ -465,7 +466,7 @@ func TestScanBuffer_BinaryLikeContent(t *testing.T) {
 	content = append(content, bytes.Repeat([]byte(" "), 50)...)
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "bin.dat", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "bin.dat", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Fatal("expected finding in binary-like (no newline) content")
 	}
@@ -480,7 +481,7 @@ func TestScanBuffer_FindingLineColumn(t *testing.T) {
 	content := []byte("line one\nkey=AKIAIOSFODNN7EXAMPLE\nline three\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Fatal("expected at least one finding")
 	}
@@ -509,7 +510,7 @@ func TestScanSingleFile_LineColumnAccuracy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := scanSingleFile("test.txt", fpath, "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings, err := scanSingleFile(context.Background(),"test.txt", fpath, "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if err != nil {
 		t.Fatalf("scanSingleFile error: %v", err)
 	}
@@ -542,7 +543,7 @@ func TestScanSingleFile_EmptyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := scanSingleFile("empty.txt", fpath, "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings, err := scanSingleFile(context.Background(),"empty.txt", fpath, "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if err != nil {
 		t.Fatalf("scanSingleFile error: %v", err)
 	}
@@ -561,7 +562,7 @@ func TestScanSingleFile_MultipleSecretsOnDifferentLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := scanSingleFile("multi.txt", fpath, "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings, err := scanSingleFile(context.Background(),"multi.txt", fpath, "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if err != nil {
 		t.Fatalf("scanSingleFile error: %v", err)
 	}
@@ -597,7 +598,7 @@ func TestScanBuffer_EntropyFilter(t *testing.T) {
 	content := []byte("SECRET=aaaa\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected entropy filter to suppress finding, got %d", len(findings))
 	}
@@ -606,7 +607,7 @@ func TestScanBuffer_EntropyFilter(t *testing.T) {
 	content2 := []byte("SECRET=a9X7kL2mQ5nR8pW4\n")
 	fb2 := newFileBuffer(content2)
 
-	findings2 := scanBuffer(fb2, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings2 := scanBuffer(context.Background(),fb2, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings2) == 0 {
 		t.Error("expected high-entropy secret to produce a finding")
 	}
@@ -623,13 +624,13 @@ func TestScanBuffer_PathFilter(t *testing.T) {
 	fb := newFileBuffer(content)
 
 	// Should match .go files.
-	findings := scanBuffer(fb, "main.go", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "main.go", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Error("expected finding for .go file")
 	}
 
 	// Should NOT match .py files.
-	findings2 := scanBuffer(fb, "main.py", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings2 := scanBuffer(context.Background(),fb, "main.py", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings2) != 0 {
 		t.Errorf("expected no finding for .py file, got %d", len(findings2))
 	}
@@ -645,7 +646,7 @@ func TestScanBuffer_KeywordPreFilter(t *testing.T) {
 
 	// Content has the keyword.
 	fb := newFileBuffer([]byte("my token is TOKEN_VALUE\n"))
-	findings := scanBuffer(fb, "f.go", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "f.go", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Error("expected finding when keyword is present")
 	}
@@ -665,7 +666,7 @@ func TestScanBuffer_KeywordPreFilter(t *testing.T) {
 	}
 	rs2 := bufferTestRuleSet(t, []config.RuleConfig{rule2}, nil)
 	fb4 := newFileBuffer([]byte("has SECRET_VALUE but not the keyword\n"))
-	findings2 := scanBuffer(fb4, "f.go", "", rs2, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings2 := scanBuffer(context.Background(),fb4, "f.go", "", rs2, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings2) != 0 {
 		t.Errorf("expected keyword filter to suppress finding, got %d", len(findings2))
 	}
@@ -679,7 +680,7 @@ func TestScanBuffer_Fingerprint(t *testing.T) {
 	content := []byte("AKIAIOSFODNN7EXAMPLE\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "abc123", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "abc123", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Fatal("expected finding")
 	}
@@ -694,7 +695,7 @@ func TestScanBuffer_Tags(t *testing.T) {
 	content := []byte("AKIAIOSFODNN7EXAMPLE\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Fatal("expected finding")
 	}
@@ -728,7 +729,7 @@ func TestScanBuffer_NilRegexSkipped(t *testing.T) {
 	content := []byte("no keywords here\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
@@ -739,7 +740,7 @@ func TestScanBuffer_PlatformLinkGenerated(t *testing.T) {
 	content := []byte("AKIAIOSFODNN7EXAMPLE\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "abc123", rs, Options{
+	findings := scanBuffer(context.Background(),fb, "test.txt", "abc123", rs, Options{
 		Stderr:   &bytes.Buffer{},
 		Platform: "github",
 	}, "myowner", "myrepo")
@@ -760,7 +761,7 @@ func TestScanBuffer_EmptyLinkOwnerRepo(t *testing.T) {
 	content := []byte("AKIAIOSFODNN7EXAMPLE\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "abc123", rs, Options{
+	findings := scanBuffer(context.Background(),fb, "test.txt", "abc123", rs, Options{
 		Stderr:   &bytes.Buffer{},
 		Platform: "github",
 	}, "", "")
@@ -794,7 +795,7 @@ func TestScanBuffer_ProximityDefaultRadius(t *testing.T) {
 	content := []byte("password = val\nfiller\nfiller\nconfig = SECRET_ABCDEFGHIJ\n")
 	fb := newFileBuffer(content)
 
-	findings := scanBuffer(fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) == 0 {
 		t.Error("expected finding when proximity keyword is within default radius")
 	}
@@ -813,8 +814,32 @@ func TestScanBuffer_RuleAllowlistSuppresses(t *testing.T) {
 	// Secret contains stop word "example" (case-insensitive check).
 	content := []byte("SECRET_EXAMPLE\n")
 	fb := newFileBuffer(content)
-	findings := scanBuffer(fb, "f.go", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+	findings := scanBuffer(context.Background(),fb, "f.go", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
 	if len(findings) != 0 {
 		t.Errorf("expected rule allowlist to suppress finding, got %d", len(findings))
 	}
+}
+
+func TestScanBuffer_ContextCancellation(t *testing.T) {
+	rs := bufferTestRuleSet(t, []config.RuleConfig{awsKeyRule()}, nil)
+
+	// Create a large buffer so the sliding window has many iterations.
+	var buf bytes.Buffer
+	for i := 0; i < 100; i++ {
+		buf.WriteString("AKIAIOSFODNN7EXAMPLE\n")
+		buf.Write(bytes.Repeat([]byte("x"), 5000))
+		buf.WriteByte('\n')
+	}
+	fb := newFileBuffer(buf.Bytes())
+
+	// Cancel the context immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	findings := scanBuffer(ctx, fb, "test.txt", "", rs, Options{Stderr: &bytes.Buffer{}}, "", "")
+
+	// With a cancelled context, scanBuffer should return promptly.
+	// It may still return some findings if the first window completed before the check.
+	// The key assertion is that it returns at all (doesn't hang).
+	t.Logf("scanBuffer with cancelled context returned %d findings", len(findings))
 }

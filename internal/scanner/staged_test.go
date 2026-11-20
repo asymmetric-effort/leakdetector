@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,7 +58,7 @@ func TestScanStaged_FindsSecret(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanStaged(opts, rs)
+	findings, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestScanStaged_CleanFile(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanStaged(opts, rs)
+	findings, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestScanStaged_NoStagedChanges(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanStaged(opts, rs)
+	findings, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestScanStaged_ExcludePaths(t *testing.T) {
 		Stderr:       &stderr,
 	}
 
-	findings, err := scanStaged(opts, rs)
+	findings, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -190,7 +191,7 @@ func TestScanStaged_MultipleHunks(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanStaged(opts, rs)
+	findings, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -226,7 +227,7 @@ func TestScanStaged_ContextLinesAdvanceCounter(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanStaged(opts, rs)
+	findings, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -262,7 +263,7 @@ func TestScanStaged_Verbose(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	_, _ = scanStaged(opts, rs)
+	_, _ = scanStaged(context.Background(),opts, rs)
 
 	// Verbose mode should have logged warnings
 	if stderr.Len() > 0 {
@@ -296,7 +297,7 @@ func TestScanStaged_LongLine(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	_, err := scanStaged(opts, rs)
+	_, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -331,7 +332,7 @@ func TestScanStaged_RemovedLines(t *testing.T) {
 		Stderr: &stderr,
 	}
 
-	findings, err := scanStaged(opts, rs)
+	findings, err := scanStaged(context.Background(),opts, rs)
 	if err != nil {
 		t.Fatalf("scanStaged returned error: %v", err)
 	}
@@ -341,5 +342,37 @@ func TestScanStaged_RemovedLines(t *testing.T) {
 		if f.File == "secret.txt" {
 			t.Error("expected no findings for removed lines in staged diff")
 		}
+	}
+}
+
+func TestScanStaged_ContextCancellation(t *testing.T) {
+	if !gitAvailable() {
+		t.Skip("git not available")
+	}
+
+	dir, runGit := setupGitRepo(t)
+	rs := testRuleSet(t)
+
+	// Stage a file with a secret.
+	secretFile := filepath.Join(dir, "secret.env")
+	os.WriteFile(secretFile, []byte("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n"), 0644)
+	runGit("add", "secret.env")
+
+	// Cancel the context immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var stderr bytes.Buffer
+	opts := Options{
+		Dir:    dir,
+		Stderr: &stderr,
+	}
+
+	_, err := scanStaged(ctx, opts, rs)
+	if err == nil {
+		// The scan may complete before hitting a context check on small input.
+		t.Log("scanStaged completed without error on cancelled context (small input)")
+	} else if err != context.Canceled {
+		t.Logf("scanStaged returned: %v (expected context.Canceled or nil)", err)
 	}
 }

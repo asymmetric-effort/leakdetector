@@ -368,7 +368,7 @@ func TestScanSingleFile(t *testing.T) {
 	}
 
 	opts := Options{Stderr: &bytes.Buffer{}}
-	findings, err := scanSingleFile("single.txt", f, "", rs, opts, "", "")
+	findings, err := scanSingleFile(context.Background(),"single.txt", f, "", rs, opts, "", "")
 	if err != nil {
 		t.Fatalf("scanSingleFile returned error: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestScanSingleFile_NonExistent(t *testing.T) {
 	rs := testRuleSet(t)
 	opts := Options{Stderr: &bytes.Buffer{}}
 
-	_, err := scanSingleFile("nofile.txt", "/nonexistent/path/nofile.txt", "", rs, opts, "", "")
+	_, err := scanSingleFile(context.Background(),"nofile.txt", "/nonexistent/path/nofile.txt", "", rs, opts, "", "")
 	if err == nil {
 		t.Error("expected error for non-existent file, got nil")
 	}
@@ -689,7 +689,7 @@ func TestScanSingleFile_ScannerError(t *testing.T) {
 		Stderr:  &stderr,
 	}
 
-	_, err := scanSingleFile("longline.txt", f, "", rs, opts, "", "")
+	_, err := scanSingleFile(context.Background(),"longline.txt", f, "", rs, opts, "", "")
 	if err != nil {
 		t.Fatalf("scanSingleFile returned error: %v", err)
 	}

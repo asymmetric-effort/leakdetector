@@ -63,7 +63,7 @@ func Scan(opts Options, rs *rules.RuleSet) ([]finding.Finding, error) {
 
 	// Scan staged changes if requested.
 	if opts.Staged {
-		stagedFindings, stagedErr := scanStaged(opts, rs)
+		stagedFindings, stagedErr := scanStaged(ctx, opts, rs)
 		if stagedErr != nil {
 			return findings, fmt.Errorf("staged scan: %w", stagedErr)
 		}
