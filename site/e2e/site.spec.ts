@@ -37,7 +37,7 @@ test.describe("leakdetector site PDV", () => {
         .getPropertyValue("--bg")
         .trim();
     });
-    expect(bgColor).toBe("#0d1117");
+    expect(bgColor).toBe("#0f172a");
   });
 
   test("favicon is set", async ({ page }) => {
